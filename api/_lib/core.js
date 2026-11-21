@@ -14,7 +14,7 @@ const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obf
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
 
-function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null }; }
+function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
 function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
@@ -247,11 +247,14 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       case 'cash': { const x = await player(); const amt = Math.round(Number(body.amount) * 100); if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1e12) return bad(400, 'Enter an amount in dollars, e.g. 5000 or -2500.'); return ok({ cash: await db.addCash(x.id, amt, String(body.note || '').slice(0, 200)) }); }
       case 'event': {
         const kind = String(body.kind); if (!['crash', 'boom', 'announce'].includes(kind)) return bad(400, 'Unknown event.');
-        let mag = Number(body.magnitude); if (!Number.isFinite(mag)) return bad(400, 'Enter an impact.');
-        mag = kind === 'announce' ? clampN(mag, -0.4, 0.4) : clampN(Math.abs(mag), 0.01, 0.4); if (Math.abs(mag) < 0.01) return bad(400, 'Impact must be at least 1%.');
+        const pump = kind === 'announce' && (body.unit === 'pct' || body.unit === 'usd'); // a stock pump: an amount, in dollars or percent, spread over some game days
+        let mag = pump ? (Number(body.amount) >= 0 ? 0.12 : -0.12) : Number(body.magnitude); if (!Number.isFinite(mag)) return bad(400, 'Enter an impact.');
+        mag = pump ? mag : kind === 'announce' ? clampN(mag, -0.4, 0.4) : clampN(Math.abs(mag), 0.01, 0.4); if (Math.abs(mag) < 0.01) return bad(400, 'Impact must be at least 1%.');
+        if (pump) { const amt = Number(body.amount); if (!Number.isFinite(amt) || amt === 0) return bad(400, 'Enter an amount.'); if (body.unit === 'pct' && (amt < -90 || amt > 1000)) return bad(400, 'Percent must be between -90 and 1000.'); if (body.unit === 'usd' && Math.abs(amt) > 100000) return bad(400, 'Dollar amount is too large.'); }
         const row = { week, kind, magnitude: mag, game_day: body.day === '' || body.day == null ? null : clampN(body.day | 0, 0, WEEKLY_DAYS), player_id: body.playerId || null };
         if (kind === 'announce') {
           const S = createWeekly(week), t = String(body.ticker || '').toUpperCase(); if (!S.companies[t]) return bad(400, 'Pick a company.');
+          if (pump) Object.assign(row, { unit: body.unit, amount: Number(body.amount), duration_days: clampN(Math.round(Number(body.duration) || 0), 0, 24) });
           Object.assign(row, { ticker: t, speaker: String(body.speaker || 'A Very Important Person').slice(0, 40), headline: String(body.headline || '').slice(0, 160) });
         }
         return ok({ event: await db.addEvent(row) });

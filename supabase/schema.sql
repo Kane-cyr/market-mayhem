@@ -63,6 +63,9 @@ create table if not exists global_events (
   ticker text,
   speaker text check (char_length(speaker) <= 40),
   headline text check (char_length(headline) <= 160),
+  unit text check (unit in ('pct','usd')),          -- stock pumps: amount in percent or dollars per share...
+  amount double precision,
+  duration_days integer check (duration_days between 0 and 24),  -- ...spread over this many game days
   created_at timestamptz not null default now()
 );
 

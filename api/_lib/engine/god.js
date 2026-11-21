@@ -27,7 +27,9 @@ export function applyGod(S, pl) {
     const kind = ['boom', 'crash', 'announce'].includes(e.kind) ? e.kind : 'crash';
     const mag = kind === 'announce' ? clamp(Number(e.mag) || 0, -0.4, 0.4) : clamp(Math.abs(Number(e.mag)) || 0.08, 0.01, 0.4);
     const at = e.day == null ? S.t + 1 : Math.max(S.t + 1, start + Math.max(0, e.day | 0) * TPD);
-    (S.godEvents ||= []).push({ id: e.id, kind, mag, t: at, ticker: e.ticker ? String(e.ticker).slice(0, 8) : null, text: e.text ? String(e.text).slice(0, 160) : '', who: e.who ? String(e.who).slice(0, 40) : '' });
+    const unit = e.unit === 'usd' || e.unit === 'pct' ? e.unit : null; // how far, and over how long, a stock is pumped (announcements only)
+    const amt = unit ? clamp(Number(e.amt) || 0, unit === 'pct' ? -90 : -100000, unit === 'pct' ? 1000 : 100000) : null, dur = unit ? clamp(Math.round(Number(e.dur) || 0), 0, 24) : null;
+    (S.godEvents ||= []).push({ id: e.id, kind, mag, t: at, ticker: e.ticker ? String(e.ticker).slice(0, 8) : null, text: e.text ? String(e.text).slice(0, 160) : '', who: e.who ? String(e.who).slice(0, 40) : '', unit, amt, dur });
   }
 }
 
@@ -41,8 +43,13 @@ export function godTick(S) {
       const who = e.who || 'A Very Important Person';
       publishCustom(S, { cat: 'Statement', sev: Math.abs(e.mag) >= 0.1 ? 5 : 4, status: 'confirmed', tickers: [c.ticker], source: who,
         head: `${who}: "${e.text || (e.mag > 0 ? `${c.name} makes great products. The best.` : `${c.name} is a disaster. Sad.`)}"`,
-        body: `${who} singled out ${c.name} in public remarks today. Traders reacted instantly.`, impact: { co: { [c.ticker]: e.mag } }, persist: 0.75 });
-      c.buzz += 10; continue;
+        body: `${who} singled out ${c.name} in public remarks today. Traders reacted instantly.`, impact: { co: { [c.ticker]: e.unit ? 0 : e.mag } }, persist: 0.75 });
+      c.buzz += 10;
+      if (e.unit) { // spread the move evenly over e.dur game days
+        const L = clamp(e.unit === 'usd' ? Math.log(Math.max(0.05, (c.price + e.amt) / c.price)) : Math.log(1 + e.amt / 100), Math.log(0.1), Math.log(11));
+        S.impulses.push({ t: c.ticker, rem: L, left: Math.max(1, Math.round(e.dur * TPD)), start: S.t }); c.sentiment = clamp(c.sentiment + (L > 0 ? 0.3 : -0.3), -1, 1);
+      }
+      continue;
     }
     const up = e.kind === 'boom', pick = (up ? BOOM : CRASH)[e.id % 3];
     publishCustom(S, { cat: 'Markets', sev: e.mag >= 0.1 ? 5 : 4, status: 'confirmed', tickers: [], head: pick, body: up ? 'Buyers poured in across every sector. Analysts are scrambling for a reason.' : 'Every sector fell together. Analysts are scrambling for a reason.', impact: { mkt: up ? e.mag : -e.mag }, persist: 0.7 });

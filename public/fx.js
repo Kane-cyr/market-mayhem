@@ -114,7 +114,7 @@
     const say = h('div', { class: 'mmfx-say', 'aria-live': 'polite' });
     const btn = h('button', { class: 'mmfx-go mmfx-open', style: 'display:none' }, 'Open the market');
     const up = d.mag >= 0;
-    const tag = d.ticker ? h('span', { class: 'mmfx-tag', style: `background:${up ? '#0a9a5a' : '#d3212f'}` }, `${d.ticker} ${up ? '▲' : '▼'} traders are reacting`) : null;
+    const tag = d.ticker ? h('span', { class: 'mmfx-tag', style: `background:${up ? '#0a9a5a' : '#d3212f'}` }, `${up ? '▲' : '▼'} ${d.label || d.ticker + ' traders are reacting'}`) : null;
     root.append(h('div', { class: 'mmfx-lower' }, h('div', { class: 'mmfx-who' }, d.who || 'The President'), say, tag, btn));
     const full = '“' + d.text + '”'; let i = 0, done = false;
     const finish = () => { done = true; say.textContent = full; btn.style.display = ''; btn.focus(); };
@@ -168,7 +168,7 @@
   const push = (kind, data) => { queue.push({ kind, data }); if (!playing) next(); };
 
   window.mmFx = {
-    president: d => push('president', { who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
+    president: d => push('president', { label: String(d.label || '').slice(0, 60), who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
     cash: dollars => { if (Number.isFinite(dollars) && Math.abs(dollars) >= 1) push('cash', { dollars }); },
   };
 })();

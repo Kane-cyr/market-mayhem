@@ -43,7 +43,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const money = c => c == null ? '—' : '$' + Math.round(c / 100).toLocaleString('en-US');
 const pctS = r => r == null ? '—' : (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%';
 const ago = d => { if (!d) return 'never'; const m = (Date.now() - new Date(d)) / 6e4; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
-let KEY = sessionStorage.getItem('mm.admin') || '', ST = { week: '', data: null, companies: [], ev: { kind: 'announce', mag: 15, ticker: '', who: 'The President', text: '', day: '', target: '' } };
+let KEY = sessionStorage.getItem('mm.admin') || '', ST = { week: '', data: null, companies: [], ev: { kind: 'announce', mag: 15, ticker: '', who: 'The President', text: '', day: '', target: '', dir: 1, unit: 'pct', amt: 25, dur: 3 } };
 function toast(t, bad) { const el = $('toast'); el.textContent = t; el.style.borderLeftColor = bad ? 'var(--down)' : 'var(--up)'; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 3500); }
 async function api(op, body = {}) {
   const r = await fetch('/api/admin?op=' + op, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': KEY }, body: JSON.stringify({ week: ST.week, ...body }) });
@@ -79,14 +79,19 @@ function godPanel() {
   ${isA ? `<label>Company<select id="ev-ticker"><option value="">Pick a company…</option>${co.map(x => `<option value="${esc(x.ticker)}" ${x.ticker === e.ticker ? 'selected' : ''}>${esc(x.ticker)} · ${esc(x.name)}</option>`).join('')}</select></label>
   <label>Who says it<input id="ev-who" maxlength="40" value="${esc(e.who)}" placeholder="The President"></label>
   <label>What they say<textarea id="ev-text" maxlength="160" rows="2" placeholder="${c ? esc(c.name) + ' makes great products. The best.' : 'They make great computers.'}">${esc(e.text)}</textarea></label>` : ''}
-  <label>Impact ${isA ? '(negative = the stock tanks)' : 'on the whole market'}<input type="range" id="ev-mag" min="${isA ? -40 : 1}" max="40" step="1" value="${mag}"></label>
-  <div class="impact ${(isA ? mag : e.kind === 'boom' ? 1 : -1) >= 0 ? 'up' : 'down'}">${isA ? (mag >= 0 ? '+' : '') + mag : (e.kind === 'boom' ? '+' : '−') + mag}%</div>
+  ${isA ? `<div class="seg"><button class="${e.dir > 0 ? 'on' : ''}" data-dir="1">Goes up</button><button class="${e.dir < 0 ? 'on' : ''}" data-dir="-1">Goes down</button></div>
+  <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><label>How much per share<input type="number" id="ev-amt" min="0" step="any" value="${esc(e.amt)}" placeholder="${e.unit === 'usd' ? 'e.g. 10' : 'e.g. 25'}"></label>
+  <div class="seg" style="margin-bottom:8px"><button class="${e.unit === 'pct' ? 'on' : ''}" data-unit="pct">%</button><button class="${e.unit === 'usd' ? 'on' : ''}" data-unit="usd">$</button></div></div>
+  <label>Over how long<select id="ev-dur">${[[0, 'Straight away'], [1, '1 game day'], [2, '2 game days'], [3, '3 game days'], [5, '5 game days'], [7, '1 game week'], [10, '10 game days'], [14, '2 game weeks'], [21, '3 game weeks'], [24, 'The whole 24 days']].map(([v, l]) => `<option value="${v}" ${Number(e.dur) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+  <div class="impact ${e.dir > 0 ? 'up' : 'down'}">${e.dir > 0 ? '+' : '−'}${e.unit === 'usd' ? '$' : ''}${esc(e.amt || 0)}${e.unit === 'usd' ? '' : '%'}</div>`
+  : `<label>Impact on the whole market<input type="range" id="ev-mag" min="1" max="40" step="1" value="${mag}"></label>
+  <div class="impact ${e.kind === 'boom' ? 'up' : 'down'}">${e.kind === 'boom' ? '+' : '−'}${mag}%</div>`}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Who sees it<select id="ev-target"><option value="">Everyone</option>${players.map(p => `<option value="${esc(p.id)}" ${e.target === p.id ? 'selected' : ''}>Only ${esc(p.nickname)}</option>`).join('')}</select></label>
   <label>When<select id="ev-day"><option value="">As soon as possible</option>${Array.from({ length: 25 }, (_, i) => `<option value="${i}" ${String(e.day) === String(i) ? 'selected' : ''}>Game day ${i}</option>`).join('')}</select></label></div>
-  <div class="preview"><div class="t">BREAKING</div><div class="b">${esc(head)}</div></div>
-  <button class="gold" style="width:100%" id="ev-go" ${isA && !e.ticker ? 'disabled' : ''}>Unleash it</button>
+  <div class="preview"><div class="t">BREAKING</div><div class="b">${esc(head)}</div>${isA && e.ticker ? `<div class="xs mute" style="margin-top:4px">${esc(e.ticker)} ${e.dir > 0 ? 'rises' : 'falls'} ${e.unit === 'usd' ? '$' + esc(e.amt || 0) + ' a share' : esc(e.amt || 0) + '%'} ${Number(e.dur) ? 'over ' + e.dur + ' game day' + (Number(e.dur) === 1 ? '' : 's') : 'straight away'}</div>` : ''}</div>
+  <button class="gold" style="width:100%" id="ev-go" ${isA && (!e.ticker || !(Number(e.amt) > 0)) ? 'disabled' : ''}>Unleash it</button>
   <div class="xs mute" style="margin-top:8px">Players online get it at their next game day. Players who start later this week get it at the chosen day.</div></div>
-  <div class="card"><h2>This week's events <span class="r">${(ST.data?.events || []).length}</span></h2>${(ST.data?.events || []).slice().reverse().map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="chip ${x.kind === 'crash' || x.magnitude < 0 ? 'r' : 'g'}">${esc(x.kind)} ${x.magnitude >= 0 ? '+' : ''}${Math.round(x.magnitude * 100)}%</span>${x.ticker ? `<b>${esc(x.ticker)}</b> ` : ''}<span class="dim">${x.headline ? '“' + esc(x.headline) + '”' : ''}</span><div class="xs mute">${x.player_id ? 'one player' : 'everyone'} · ${x.game_day == null ? 'asap' : 'day ' + x.game_day}</div></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
+  <div class="card"><h2>This week's events <span class="r">${(ST.data?.events || []).length}</span></h2>${(ST.data?.events || []).slice().reverse().map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="chip ${x.kind === 'crash' || x.magnitude < 0 ? 'r' : 'g'}">${x.unit ? (x.amount >= 0 ? '+' : '−') + (x.unit === 'usd' ? '$' : '') + Math.abs(x.amount) + (x.unit === 'usd' ? '' : '%') + (x.duration_days ? ' over ' + x.duration_days + 'd' : '') : esc(x.kind) + ' ' + (x.magnitude >= 0 ? '+' : '') + Math.round(x.magnitude * 100) + '%'}</span>${x.ticker ? `<b>${esc(x.ticker)}</b> ` : ''}<span class="dim">${x.headline ? '“' + esc(x.headline) + '”' : ''}</span><div class="xs mute">${x.player_id ? 'one player' : 'everyone'} · ${x.game_day == null ? 'asap' : 'day ' + x.game_day}</div></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
 }
 function mainView() {
   const d = ST.data; if (!d) return '<header><div class="mk">⚡</div><h1>MARKET GOD</h1></header><div class="empty">Loading…</div>';
@@ -107,12 +112,15 @@ document.addEventListener('input', e => {
   if (k === 'vol' && tr) tr.querySelector('[data-o=vol]').textContent = volLabel(2 ** Number(e.target.value));
   if (k === 'luck' && tr) { const v = Number(e.target.value); tr.querySelector('[data-o=luck]').textContent = (v > 0 ? '+' : '') + v.toFixed(2); }
   if (e.target.id === 'ev-mag') { ST.ev.mag = Number(e.target.value); syncEv(); }
+  if (e.target.id === 'ev-amt') { ST.ev.amt = e.target.value; const b = $('ev-go'); if (b) b.disabled = !(ST.ev.ticker && Number(ST.ev.amt) > 0); const im = document.querySelector('.impact'); if (im) im.textContent = (ST.ev.dir > 0 ? '+' : '−') + (ST.ev.unit === 'usd' ? '$' : '') + (ST.ev.amt || 0) + (ST.ev.unit === 'usd' ? '' : '%'); }
   if (['ev-who', 'ev-text'].includes(e.target.id)) { ST.ev[e.target.id === 'ev-who' ? 'who' : 'text'] = e.target.value; const pv = document.querySelector('.preview .b'); if (pv) pv.textContent = `${ST.ev.who || 'A Very Important Person'}: "${ST.ev.text || '…'}"`; }
 });
 function syncEv() { const box = document.querySelector('.impact'); if (!box) return; const e = ST.ev, isA = e.kind === 'announce', v = isA ? e.mag : (e.kind === 'boom' ? 1 : -1) * Math.abs(e.mag); box.textContent = (v >= 0 ? '+' : '−') + Math.abs(v) + '%'; box.className = 'impact ' + (v >= 0 ? 'up' : 'down'); }
 document.addEventListener('change', e => {
   if (e.target.id === 'ev-ticker') { ST.ev.ticker = e.target.value; render(); }
   if (e.target.id === 'ev-target') ST.ev.target = e.target.value;
+  if (e.target.id === 'ev-dur') { ST.ev.dur = Number(e.target.value); render(); }
+  if (e.target.id === 'ev-amt') render();
   if (e.target.id === 'ev-day') ST.ev.day = e.target.value;
   if (e.target.id === 'week') { ST.week = e.target.value.trim(); ST.companies = []; load(); }
 });
@@ -120,8 +128,10 @@ document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'refresh') return load();
   if (b.id === 'logout') { KEY = ''; sessionStorage.removeItem('mm.admin'); return render(); }
+  if (b.dataset.dir) { ST.ev.dir = Number(b.dataset.dir); return render(); }
+  if (b.dataset.unit) { ST.ev.unit = b.dataset.unit; ST.ev.amt = b.dataset.unit === 'usd' ? 10 : 25; return render(); }
   if (b.dataset.ev) { ST.ev.kind = b.dataset.ev; if (b.dataset.ev !== 'announce') ST.ev.mag = Math.max(1, Math.abs(ST.ev.mag)); return render(); }
-  if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', { kind: v.kind, magnitude: (isA ? v.mag : Math.abs(v.mag)) / 100, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.mag >= 0 ? '+' : ''}${v.mag}%` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
+  if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', isA ? { kind: 'announce', unit: v.unit, amount: v.dir * Number(v.amt), duration: v.dur, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null } : { kind: v.kind, magnitude: Math.abs(v.mag) / 100, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.dir > 0 ? '+' : '−'}${v.unit === 'usd' ? '$' : ''}${v.amt}${v.unit === 'usd' ? '' : '%'}` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
   const tr = b.closest('tr'); if (!tr) return; const playerId = tr.dataset.id, a = b.dataset.a, p = ST.data.players.find(x => x.id === playerId), name = p?.nickname;
   if (a === 'mods') return act('mods', { playerId, vol: 2 ** Number(tr.querySelector('[data-k=vol]').value), luck: Number(tr.querySelector('[data-k=luck]').value) }, `Updated ${name}'s market`);
   if (a === 'normal') return act('mods', { playerId, vol: 1, luck: 0 }, `${name} is back to a fair market`);

@@ -113,6 +113,15 @@ export const COMPANIES = [
     desc: 'Industrial-scale crypto miner burning electricity for a living. Survives on the token price and cheap power.', comp: [], sup: [], ex: { cr: 1.3, os: -0.2 } },
   { t: 'LDGR', n: 'Ledgerline Payments', s: 'Crypto', k: 'growth', p: 23.60, cap: 15, rev: 1.4, m: 0.08, g: 0.45, d: 0.3, v: 0.62, rep: 66,
     desc: 'Stablecoin and cross-border payments rails. Grows fast, and lives in fear of a de-peg.', comp: ['HVEX'], sup: [] },
+  // ---- Meme coins: no fundamentals, enormous volatility
+  { t: 'WOOF', n: 'Woofcoin', s: 'Crypto', k: 'spec', p: 2.4, cap: 1.1, rev: 0.004, m: -0.6, g: 1.5, d: 0.0, v: 1.5, rep: 30,
+    desc: 'A dog-themed token with no product, no roadmap and a very loud community. Moves on tweets, not on earnings.', comp: ['RBIT'], sup: [], ex: { cr: 1.7 } },
+  { t: 'RBIT', n: 'Ribbit Coin', s: 'Crypto', k: 'spec', p: 1.8, cap: 0.8, rev: 0.002, m: -0.8, g: 1.8, d: 0.0, v: 1.6, rep: 27,
+    desc: 'A frog meme that escaped the internet. Millions of holders, one inside joke.', comp: ['WOOF'], sup: [], ex: { cr: 1.7 } },
+  { t: 'MOON', n: 'MoonShot Token', s: 'Crypto', k: 'spec', p: 3.2, cap: 0.6, rev: 0.003, m: -0.5, g: 1.2, d: 0.0, v: 1.5, rep: 29,
+    desc: 'Promises to go to the moon, and has the rocket emoji to prove it. Liquidity is thin and so is the whitepaper.', comp: ['CHAD'], sup: [], ex: { cr: 1.7 } },
+  { t: 'CHAD', n: 'GigaChad Coin', s: 'Crypto', k: 'spec', p: 0.9, cap: 0.5, rev: 0.002, m: -0.7, g: 1.6, d: 0.0, v: 1.6, rep: 28,
+    desc: 'Built on pure vibes and a jawline. Whales love it right up until they do not.', comp: ['MOON'], sup: [], ex: { cr: 1.7 } },
 ];
 
 // Companies that list later (IPOs), keeping the market fresh and rewarding discovery.
