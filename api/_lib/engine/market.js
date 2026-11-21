@@ -126,11 +126,12 @@ export function stepMarket(state) {
   }
 
   // --- impulses this tick
-  const imp = {};
+  const imp = {}, pump = {};
   if (state.impulses.length) {
     const keep = [];
     for (const p of state.impulses) {
       if (p.start > t) { keep.push(p); continue; }
+      if (p.left != null) { const a = p.rem / p.left; pump[p.t] = (pump[p.t] || 0) + a; p.rem -= a; if (--p.left > 0) keep.push(p); continue; } // Market God pump: even drift over p.left ticks
       const a = p.rem * p.rate;
       imp[p.t] = (imp[p.t] || 0) + a; p.rem -= a;
       if (Math.abs(p.rem) > 2e-5) keep.push(p);
@@ -160,7 +161,7 @@ export function stepMarket(state) {
     const corr = clamp(KAPPA[c.tier] * dev, -0.03, 0.03);
     const rot = L.def * w.rot;
     const nonSent = F + I + corr + rot + (dr['T:' + tk] || 0) + (imp[tk] || 0);
-    const r = clamp(nonSent + 0.0006 * c.sentiment, -0.4, 0.4);
+    const r = clamp(nonSent + 0.0006 * c.sentiment, -0.4, 0.4) + (pump[tk] || 0);
     c.info = c.info * (1 - 0.0008) + 0.6 * I;
     const np = Math.max(0.01, round(c.price * Math.exp(r), 4));
     const bo = round(s0 ? c.price * Math.exp(r * 0.6) : c.price, 4);

@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(); let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(); let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -23,7 +23,12 @@ export function memoryDb() {
     async updateRun(id, patch) { const r = runs.get(id); if (!r) return null; Object.assign(r, clone(patch)); return clone(r); },
     async deleteRun(id) { runs.delete(id); },
     async runs(week) { return [...runs.values()].filter(r => !week || r.week === week).map(clone); },
-    async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id).map(clone); },
+    async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
+    async claimCash(ids) { for (const c of cash) if (ids.includes(c.id)) c.claimed = true; },
+    async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
+    async duel(id) { return clone(duels.get(id) || null); },
+    async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
+    async updateDuel(id, patch) { const d = duels.get(id); if (!d) return null; Object.assign(d, patch); return clone(d); },
     async cashForRun(runId) { return cash.filter(c => c.run_id === runId).map(clone); },
     async markCash(ids, runId) { for (const c of cash) if (ids.includes(c.id)) c.run_id = runId; },
     async addCash(pid, amount_cents, note) { const c = { id: ++cid, player_id: pid, amount_cents, note, created_at: now(), run_id: null }; cash.push(c); return clone(c); },
@@ -54,7 +59,12 @@ export async function supabaseDb(url, key) {
     updateRun: (id, patch) => one(sb.from('runs').update(patch).eq('id', id).select().maybeSingle()),
     deleteRun: id => one(sb.from('runs').delete().eq('id', id)),
     runs: week => one(week ? sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,reject_reason,started_at,submitted_at,start_payload,issued').eq('week', week) : sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,started_at,submitted_at')),
-    pendingCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null)),
+    pendingCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null).eq('claimed', false)),
+    claimCash: ids => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids)) : null,
+    createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
+    duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
+    duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
+    updateDuel: (id, patch) => one(sb.from('duels').update(patch).eq('id', id).select().maybeSingle()),
     cashForRun: runId => one(sb.from('cash_adjustments').select('*').eq('run_id', runId)),
     markCash: (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: runId }).in('id', ids)) : null,
     addCash: (pid, amount_cents, note) => one(sb.from('cash_adjustments').insert({ player_id: pid, amount_cents, note }).select().single()),
