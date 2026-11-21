@@ -95,5 +95,6 @@
   }, true);
   document.addEventListener('click', e => { const t = e.target.closest('[data-act="guide"]'); if (t) { e.preventDefault(); open(); } });
 
-  if (!seen()) setTimeout(open, 500);
+  // first visit: show it once the player has signed in
+  if (!seen()) { const go = () => setTimeout(open, 400); let t = ''; try { t = localStorage.getItem('mm.token') || ''; } catch { /* ignore */ } if (t) addEventListener('mm-signed-in', go, { once: true }); else addEventListener('mm-signed-in', go, { once: true }); }
 })();
