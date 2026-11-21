@@ -1,0 +1,7 @@
+{
+  "name": "market-mayhem-online",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "dependencies": { "@supabase/supabase-js": "^2.119.0" }
+}

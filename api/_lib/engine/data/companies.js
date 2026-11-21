@@ -1,0 +1,140 @@
+// The fictional universe. All companies, people and places are invented.
+// Def fields: t ticker, n name, s sector, k tier (blue|growth|spec), p price, cap market cap ($B),
+// rev revenue ($B/yr), m net margin, g growth/yr, d debt/equity, v annual volatility, div yield,
+// rep public reputation 0-100, comp competitors, sup suppliers (who supplies this firm), ex overrides.
+
+export const SECTORS = ['AI', 'Technology', 'Banking', 'Energy', 'Automotive', 'Healthcare', 'Aerospace', 'Entertainment', 'Consumer goods', 'Telecom', 'Crypto'];
+
+// rs: rate sensitivity (+ = hurt by rising rates); os: oil sensitivity (+ = helped by rising oil);
+// cs: consumer-cycle sensitivity; cr: crypto sensitivity; beta: market beta; def: defensiveness
+export const SECTOR_PROFILE = {
+  'AI':             { rs: 1.2,  os: 0,    cs: 0.2, cr: 0.05, beta: 1.30, def: -0.6, th: { AI: 1 },        hue: 268, defensive: false },
+  'Technology':     { rs: 0.8,  os: 0,    cs: 0.3, cr: 0.05, beta: 1.12, def: -0.2, th: { AI: 0.3 },      hue: 202, defensive: false },
+  'Banking':        { rs: -0.35,os: 0,    cs: 0.5, cr: 0.02, beta: 1.05, def: 0.0,  th: {},               hue: 42,  defensive: false },
+  'Energy':         { rs: 0.2,  os: 1.0,  cs: 0.2, cr: 0,    beta: 0.95, def: 0.1,  th: {},               hue: 24,  defensive: false },
+  'Automotive':     { rs: 0.8,  os: -0.35,cs: 0.9, cr: 0,    beta: 1.15, def: -0.1, th: {},               hue: 352, defensive: false },
+  'Healthcare':     { rs: 0.3,  os: 0,    cs: 0.1, cr: 0,    beta: 0.70, def: 0.6,  th: {},               hue: 168, defensive: true },
+  'Aerospace':      { rs: 0.6,  os: -0.4, cs: 0.5, cr: 0,    beta: 1.10, def: 0.0,  th: {},               hue: 218, defensive: false },
+  'Entertainment':  { rs: 0.8,  os: 0,    cs: 0.9, cr: 0,    beta: 1.10, def: -0.1, th: {},               hue: 306, defensive: false },
+  'Consumer goods': { rs: 0.4,  os: -0.15,cs: 0.7, cr: 0,    beta: 0.80, def: 0.4,  th: {},               hue: 92,  defensive: true },
+  'Telecom':        { rs: 1.0,  os: 0,    cs: 0.1, cr: 0,    beta: 0.65, def: 0.7,  th: {},               hue: 236, defensive: true },
+  'Crypto':         { rs: 1.1,  os: 0,    cs: 0.2, cr: 1.0,  beta: 1.45, def: -1.0, th: { CRYPTO: 1 },    hue: 48,  defensive: false },
+};
+
+export const COMPANIES = [
+  // ---- Artificial intelligence
+  { t: 'NRLT', n: 'Neuralyth Systems', s: 'AI', k: 'blue', p: 214.30, cap: 640, rev: 58, m: 0.24, g: 0.16, d: 0.3, v: 0.30, div: 0.004, rep: 82,
+    desc: 'The dominant enterprise AI platform. Its Cognito models quietly run customer service desks, trading floors and call centres across the known world.', comp: ['CRTX', 'MFRG', 'HLXC'], sup: ['VLTS'] },
+  { t: 'CRTX', n: 'Cortexa Labs', s: 'AI', k: 'growth', p: 96.40, cap: 142, rev: 6.2, m: -0.08, g: 0.62, d: 0.15, v: 0.55, rep: 70,
+    desc: 'A frontier research lab racing to build general-purpose reasoning systems. Revenue is soaring; so is the cash burn.', comp: ['NRLT', 'AXCG'], sup: ['VLTS'] },
+  { t: 'MFRG', n: 'Mindforge AI', s: 'AI', k: 'growth', p: 58.75, cap: 71, rev: 4.1, m: 0.06, g: 0.38, d: 0.35, v: 0.50, rep: 64,
+    desc: 'Industrial intelligence for factories and logistics networks. Unglamorous, increasingly indispensable.', comp: ['NRLT', 'STKL'], sup: ['VLTS'] },
+  { t: 'AXCG', n: 'Axiom Cognition', s: 'AI', k: 'spec', p: 12.40, cap: 3.4, rev: 0.18, m: -0.55, g: 0.95, d: 0.5, v: 0.95, rep: 45,
+    desc: 'A speculative start-up claiming a breakthrough in neuromorphic reasoning. Superb at press releases; the product is still hard to find.', comp: ['CRTX', 'MFRG'], sup: ['VLTS'] },
+  // ---- Technology
+  { t: 'HLXC', n: 'Helix Computing', s: 'Technology', k: 'blue', p: 142.10, cap: 520, rev: 96, m: 0.27, g: 0.09, d: 0.4, v: 0.24, div: 0.008, rep: 85,
+    desc: 'Cloud infrastructure and enterprise computing. The plumbing of the digital economy and a favourite of cautious institutions.', comp: ['STKL', 'NRLT', 'PXLN'], sup: ['VLTS'] },
+  { t: 'PXLN', n: 'Pixelon', s: 'Technology', k: 'blue', p: 188.60, cap: 610, rev: 140, m: 0.22, g: 0.06, d: 0.25, v: 0.26, div: 0.006, rep: 78,
+    desc: 'Consumer devices, wearables and a fiercely loyal ecosystem. Sales rise and fall with the consumer mood.', comp: ['HLXC', 'VLTS'], sup: ['VLTS'], ex: { cs: 0.6 } },
+  { t: 'VLTS', n: 'Voltaris Semiconductors', s: 'Technology', k: 'growth', p: 77.20, cap: 190, rev: 22, m: 0.19, g: 0.24, d: 0.45, v: 0.42, rep: 74,
+    desc: 'Designs the chips behind AI data centres, cars and phones. When anyone in tech does well, Voltaris usually does better.', comp: ['PXLN'], sup: [], ex: { th: { AI: 0.7 }, beta: 1.3 } },
+  { t: 'STKL', n: 'Stackline Software', s: 'Technology', k: 'growth', p: 63.90, cap: 48, rev: 5.4, m: 0.12, g: 0.28, d: 0.6, v: 0.42, rep: 68,
+    desc: 'Enterprise workflow software, expanded by borrowing. Sensitive to interest rates and AI disruption alike.', comp: ['HLXC', 'MFRG'], sup: ['VLTS'] },
+  // ---- Banking & insurance
+  { t: 'MRFB', n: 'Meridian Federal Bank', s: 'Banking', k: 'blue', p: 84.50, cap: 210, rev: 62, m: 0.21, g: 0.04, d: 0.6, v: 0.22, div: 0.035, rep: 76,
+    desc: 'The largest deposit-taker in the Aurelian Union. Big, dull and systemically important.', comp: ['ALDC', 'IVTR'], sup: [] },
+  { t: 'ALDC', n: 'Aldgate Capital', s: 'Banking', k: 'growth', p: 52.30, cap: 38, rev: 14, m: 0.14, g: 0.08, d: 1.8, v: 0.38, div: 0.018, rep: 58,
+    desc: 'An investment bank with a taste for leverage, trading and the occasional crypto desk.', comp: ['MRFB'], sup: [], ex: { cr: 0.3 } },
+  { t: 'BMIN', n: 'Bastion Mutual Insurance', s: 'Banking', k: 'blue', p: 121.00, cap: 74, rev: 36, m: 0.10, g: 0.03, d: 0.3, v: 0.17, div: 0.030, rep: 80,
+    desc: 'Property and casualty insurer. Calm in good times; hurt by disasters and by bank-sector panics that touch its bond portfolio.', comp: [], sup: [], ex: { def: 0.5, cs: 0.1 } },
+  { t: 'IVTR', n: 'Ironvale Trust', s: 'Banking', k: 'blue', p: 24.80, cap: 9.6, rev: 5.1, m: 0.09, g: 0.01, d: 2.2, v: 0.34, div: 0.045, rep: 47,
+    desc: 'A leveraged regional lender heavy with commercial property loans. The yield is generous. There is a reason for that.', comp: ['MRFB'], sup: [], ex: { rs: 0.5 } },
+  // ---- Energy
+  { t: 'PGEN', n: 'Petrogen Global', s: 'Energy', k: 'blue', p: 66.40, cap: 330, rev: 210, m: 0.08, g: 0.02, d: 0.35, v: 0.26, div: 0.045, rep: 66,
+    desc: 'Integrated oil and gas major. A cash machine when crude rises, a political lightning rod always.', comp: ['ATDL', 'SLRG'], sup: [], ex: { os: 1.0 } },
+  { t: 'SLRG', n: 'Solaris Grid', s: 'Energy', k: 'growth', p: 41.80, cap: 52, rev: 6.8, m: 0.07, g: 0.31, d: 0.9, v: 0.46, rep: 72,
+    desc: 'Utility-scale solar and storage. Government policy is its tailwind; borrowing costs are its headwind.', comp: ['PGEN', 'FSNW'], sup: [], ex: { os: -0.25, th: { GREEN: 1 } } },
+  { t: 'ATDL', n: 'Atlas Drilling', s: 'Energy', k: 'growth', p: 29.10, cap: 21, rev: 8.9, m: 0.09, g: 0.05, d: 0.8, v: 0.48, div: 0.02, rep: 55,
+    desc: 'Oilfield services. A leveraged bet on the crude price: it rises faster than oil, and falls faster too.', comp: ['PGEN'], sup: [], ex: { os: 1.4 } },
+  { t: 'FSNW', n: 'Fusionworks', s: 'Energy', k: 'spec', p: 9.85, cap: 2.8, rev: 0.05, m: -4.0, g: 0.9, d: 0.2, v: 0.90, rep: 51,
+    desc: 'Chasing commercial fusion power. Always ten years away; always one demo away from changing everything.', comp: ['SLRG'], sup: [], ex: { os: -0.1, th: { GREEN: 0.6 } } },
+  // ---- Automotive
+  { t: 'KSTM', n: 'Kestrel Motors', s: 'Automotive', k: 'blue', p: 38.20, cap: 96, rev: 150, m: 0.05, g: 0.01, d: 1.4, v: 0.30, div: 0.030, rep: 60,
+    desc: 'A century-old automaker mid-way through a painful pivot to electric. Fat dividend, thin margins, heavy debt.', comp: ['VLTD', 'RDGB'], sup: ['VLTS'], ex: { os: -0.5 } },
+  { t: 'VLTD', n: 'Volta Dynamics', s: 'Automotive', k: 'growth', p: 167.50, cap: 210, rev: 38, m: 0.11, g: 0.34, d: 0.3, v: 0.52, rep: 80,
+    desc: 'The electric-vehicle leader. A cult brand with a market cap that assumes everything goes right.', comp: ['KSTM', 'AUTN'], sup: ['VLTS'], ex: { os: 0.2, th: { GREEN: 0.6 } } },
+  { t: 'RDGB', n: 'Ridgeback Trucks', s: 'Automotive', k: 'blue', p: 71.90, cap: 34, rev: 21, m: 0.08, g: 0.03, d: 0.7, v: 0.28, div: 0.022, rep: 62,
+    desc: 'Heavy trucks and freight vehicles. A proxy for the industrial economy, and very exposed to diesel prices.', comp: ['KSTM'], sup: [], ex: { os: -0.7 } },
+  { t: 'AUTN', n: 'Aurora Autonomy', s: 'Automotive', k: 'spec', p: 18.60, cap: 6.2, rev: 0.35, m: -0.9, g: 0.7, d: 0.3, v: 0.85, rep: 50,
+    desc: 'Self-driving software that is permanently two quarters from full deployment.', comp: ['VLTD'], sup: ['VLTS'], ex: { th: { AI: 0.5 } } },
+  // ---- Healthcare
+  { t: 'VTLS', n: 'Vitalis Pharma', s: 'Healthcare', k: 'blue', p: 104.30, cap: 280, rev: 71, m: 0.26, g: 0.05, d: 0.5, v: 0.18, div: 0.028, rep: 83,
+    desc: 'Global pharmaceutical giant with a deep pipeline and a patent cliff it keeps carefully quiet about.', comp: ['GNMD', 'HLDX'], sup: [] },
+  { t: 'GNMD', n: 'GenoMed Therapeutics', s: 'Healthcare', k: 'spec', p: 31.40, cap: 5.2, rev: 0.09, m: -2.2, g: 0.5, d: 0.1, v: 0.90, rep: 52,
+    desc: 'Gene-therapy biotech whose entire valuation rests on a single late-stage trial. Binary outcomes, brutal moves.', comp: ['VTLS'], sup: [] },
+  { t: 'CRPT', n: 'CarePoint Health', s: 'Healthcare', k: 'blue', p: 57.60, cap: 41, rev: 30, m: 0.06, g: 0.04, d: 0.9, v: 0.20, div: 0.020, rep: 68,
+    desc: 'Hospital operator and health insurer. Recession-resistant, regulation-sensitive.', comp: ['HLDX'], sup: [] },
+  { t: 'HLDX', n: 'Helios Diagnostics', s: 'Healthcare', k: 'growth', p: 96.10, cap: 33, rev: 5.2, m: 0.17, g: 0.21, d: 0.3, v: 0.34, rep: 73,
+    desc: 'Medical imaging and diagnostics with sticky hospital contracts. A quiet compounder.', comp: ['VTLS', 'CRPT'], sup: [] },
+  // ---- Aerospace
+  { t: 'SKYW', n: 'Skyward Aerospace', s: 'Aerospace', k: 'blue', p: 192.40, cap: 150, rev: 64, m: 0.11, g: 0.06, d: 0.6, v: 0.25, div: 0.014, rep: 77,
+    desc: 'Builds airliners and defence aircraft. Government contracts cushion the cycle; geopolitics moves the stock.', comp: ['ORBT'], sup: ['VLTS'], ex: { os: -0.2 } },
+  { t: 'STRW', n: 'Stratos Airways', s: 'Aerospace', k: 'blue', p: 22.10, cap: 14, rev: 22, m: 0.05, g: 0.04, d: 1.6, v: 0.45, rep: 54,
+    desc: 'A leveraged flag-carrier airline. When fuel is cheap and travel is booming, it prints money. Otherwise it burns it.', comp: [], sup: [], ex: { os: -1.1, cs: 0.9 } },
+  { t: 'ORBT', n: 'Orbitron Space', s: 'Aerospace', k: 'spec', p: 14.20, cap: 7.8, rev: 0.6, m: -0.6, g: 0.8, d: 0.4, v: 0.80, rep: 61,
+    desc: 'Reusable launch vehicles and satellite constellations. Every launch is a referendum on the whole company.', comp: ['SKYW', 'ORBL'], sup: ['VLTS'] },
+  // ---- Entertainment
+  { t: 'LMNS', n: 'Lumen Studios', s: 'Entertainment', k: 'blue', p: 73.40, cap: 120, rev: 42, m: 0.12, g: 0.05, d: 0.7, v: 0.27, div: 0.010, rep: 74,
+    desc: 'Film studios, theme parks and a vast back catalogue. One flop away from a bad quarter, one franchise from a great one.', comp: ['STMN', 'PLSI'], sup: [] },
+  { t: 'PLSI', n: 'Pulse Interactive', s: 'Entertainment', k: 'growth', p: 46.80, cap: 29, rev: 5.9, m: 0.15, g: 0.18, d: 0.2, v: 0.44, rep: 71,
+    desc: 'Game publisher with three monster franchises and a studio full of prima donnas.', comp: ['LMNS'], sup: ['VLTS'] },
+  { t: 'STMN', n: 'StreamNation', s: 'Entertainment', k: 'growth', p: 17.30, cap: 11, rev: 4.8, m: 0.01, g: 0.22, d: 1.5, v: 0.55, rep: 56,
+    desc: 'Streaming service growing subscribers faster than profits. Heavily indebted; heavily watched.', comp: ['LMNS'], sup: [] },
+  // ---- Consumer goods
+  { t: 'HSFD', n: 'Hearthstone Foods', s: 'Consumer goods', k: 'blue', p: 62.80, cap: 150, rev: 88, m: 0.09, g: 0.02, d: 0.6, v: 0.13, div: 0.032, rep: 79,
+    desc: 'Packaged food staples in every pantry on the continent. Boring, steady, reassuring in a storm.', comp: ['BLBV', 'EVHR'], sup: [], ex: { cs: 0.25 } },
+  { t: 'BLBV', n: 'Brightleaf Beverages', s: 'Consumer goods', k: 'blue', p: 48.90, cap: 90, rev: 31, m: 0.18, g: 0.04, d: 0.8, v: 0.15, div: 0.028, rep: 81,
+    desc: 'Soft drinks, teas and sparkling water. A fortress brand with predictable cash flows.', comp: ['HSFD'], sup: [], ex: { cs: 0.3 } },
+  { t: 'MVLC', n: 'Maison Veloce', s: 'Consumer goods', k: 'growth', p: 312.00, cap: 130, rev: 29, m: 0.24, g: 0.10, d: 0.2, v: 0.30, div: 0.012, rep: 84,
+    desc: 'Luxury fashion and leather goods. Wealthy customers do not notice a recession until it is well under way.', comp: ['EVHR'], sup: [], ex: { cs: 1.4 } },
+  { t: 'EVHR', n: 'Everhome Retail', s: 'Consumer goods', k: 'growth', p: 27.40, cap: 24, rev: 36, m: 0.03, g: 0.07, d: 1.1, v: 0.36, rep: 57,
+    desc: 'Big-box and e-commerce home goods. Razor-thin margins make it a barometer for consumer confidence.', comp: ['HSFD', 'MVLC'], sup: [], ex: { cs: 1.0 } },
+  // ---- Telecommunications
+  { t: 'TLNC', n: 'Teleon Communications', s: 'Telecom', k: 'blue', p: 31.90, cap: 110, rev: 85, m: 0.12, g: 0.01, d: 1.3, v: 0.16, div: 0.050, rep: 63,
+    desc: 'The incumbent fixed-line and broadband carrier. Enormous dividend, enormous debt, glacial growth.', comp: ['NXMB', 'ORBL'], sup: [] },
+  { t: 'ORBL', n: 'Orbitlink', s: 'Telecom', k: 'growth', p: 54.20, cap: 36, rev: 4.0, m: -0.04, g: 0.42, d: 1.2, v: 0.55, rep: 62,
+    desc: 'Satellite broadband for places cables will never reach. Capital-hungry and fast growing.', comp: ['TLNC', 'ORBT'], sup: ['VLTS'] },
+  { t: 'NXMB', n: 'Nexa Mobile', s: 'Telecom', k: 'blue', p: 44.60, cap: 62, rev: 28, m: 0.11, g: 0.03, d: 0.9, v: 0.20, div: 0.038, rep: 69,
+    desc: 'Mobile network operator with loyal subscribers, steady margins and a hefty spectrum bill.', comp: ['TLNC'], sup: [] },
+  // ---- Cryptocurrency
+  { t: 'HVEX', n: 'Haven Exchange', s: 'Crypto', k: 'growth', p: 38.50, cap: 24, rev: 3.1, m: 0.22, g: 0.30, d: 0.15, v: 0.70, rep: 59,
+    desc: 'The largest regulated digital-asset exchange. Trading volumes make it a leveraged bet on crypto sentiment.', comp: ['LDGR'], sup: [] },
+  { t: 'HSHF', n: 'Hashforge Mining', s: 'Crypto', k: 'spec', p: 6.40, cap: 1.9, rev: 0.55, m: -0.12, g: 0.25, d: 0.9, v: 0.95, rep: 42,
+    desc: 'Industrial-scale crypto miner burning electricity for a living. Survives on the token price and cheap power.', comp: [], sup: [], ex: { cr: 1.3, os: -0.2 } },
+  { t: 'LDGR', n: 'Ledgerline Payments', s: 'Crypto', k: 'growth', p: 23.60, cap: 15, rev: 1.4, m: 0.08, g: 0.45, d: 0.3, v: 0.62, rep: 66,
+    desc: 'Stablecoin and cross-border payments rails. Grows fast, and lives in fear of a de-peg.', comp: ['HVEX'], sup: [] },
+];
+
+// Companies that list later (IPOs), keeping the market fresh and rewarding discovery.
+export const RESERVE = [
+  { t: 'NVCL', n: 'NovaCell Energy', s: 'Energy', k: 'spec', p: 16.00, cap: 1.6, rev: 0.12, m: -0.9, g: 1.1, d: 0.2, v: 0.95, rep: 55,
+    desc: 'Solid-state grid batteries from a university spin-out. Pre-profit, post-hype.', comp: ['SLRG', 'FSNW'], sup: [], ex: { th: { GREEN: 0.8 } } },
+  { t: 'LYRA', n: 'Lyra Biosciences', s: 'Healthcare', k: 'spec', p: 22.00, cap: 2.1, rev: 0.05, m: -3.0, g: 0.7, d: 0.1, v: 0.95, rep: 50,
+    desc: 'RNA therapeutics for rare diseases. A science project with a very large price tag.', comp: ['GNMD', 'VTLS'], sup: [] },
+  { t: 'QLOM', n: 'Quantum Loom', s: 'Technology', k: 'spec', p: 28.00, cap: 3.9, rev: 0.08, m: -2.5, g: 1.2, d: 0.1, v: 1.0, rep: 58,
+    desc: 'Quantum-lattice processors. Either the next Voltaris or a very expensive physics experiment.', comp: ['VLTS', 'HLXC'], sup: [], ex: { th: { AI: 0.5 } } },
+  { t: 'CBLT', n: 'Cobalt Mobility', s: 'Automotive', k: 'spec', p: 12.50, cap: 2.4, rev: 0.4, m: -0.5, g: 0.9, d: 0.4, v: 0.85, rep: 49,
+    desc: 'Electric micro-vans for city delivery. Contract wins are real; profit is not.', comp: ['VLTD', 'RDGB'], sup: ['VLTS'], ex: { th: { GREEN: 0.5 } } },
+  { t: 'RUNE', n: 'Rune Interactive', s: 'Entertainment', k: 'growth', p: 19.00, cap: 2.8, rev: 0.7, m: 0.05, g: 0.6, d: 0.2, v: 0.7, rep: 62,
+    desc: 'An indie-turned-breakout game studio with one runaway hit and a second on the way.', comp: ['PLSI', 'LMNS'], sup: [] },
+  { t: 'SBLD', n: 'Sable Defence', s: 'Aerospace', k: 'growth', p: 31.00, cap: 5.4, rev: 1.6, m: 0.07, g: 0.35, d: 0.5, v: 0.6, rep: 60,
+    desc: 'Drones and electronic warfare. Geopolitical tension is its best sales pitch.', comp: ['SKYW'], sup: ['VLTS'] },
+  { t: 'TRHV', n: 'TerraHarvest', s: 'Consumer goods', k: 'growth', p: 14.50, cap: 2.9, rev: 1.1, m: 0.04, g: 0.4, d: 0.6, v: 0.55, rep: 61,
+    desc: 'Vertical-farming and food technology. Cheap electricity is the whole thesis.', comp: ['HSFD'], sup: [] },
+  { t: 'PRSM', n: 'Prism Finance', s: 'Banking', k: 'growth', p: 26.00, cap: 4.4, rev: 0.9, m: 0.1, g: 0.5, d: 0.4, v: 0.6, rep: 63,
+    desc: 'A fintech lender growing swiftly on thin capital. A star in booms, a casualty in busts.', comp: ['ALDC', 'MRFB'], sup: [] },
+  { t: 'ECHO', n: 'Echo Neural', s: 'AI', k: 'spec', p: 18.00, cap: 2.5, rev: 0.1, m: -1.2, g: 1.4, d: 0.2, v: 1.0, rep: 56,
+    desc: 'Voice and companionship models. Hundreds of millions of conversations, rather fewer dollars.', comp: ['CRTX', 'AXCG'], sup: ['VLTS'] },
+  { t: 'MESH', n: 'MeshNet Telecom', s: 'Telecom', k: 'growth', p: 15.50, cap: 3.2, rev: 0.9, m: 0.02, g: 0.5, d: 0.9, v: 0.55, rep: 58,
+    desc: 'Community mesh networks and rural fibre. Politically popular and capital-intensive.', comp: ['TLNC', 'ORBL'], sup: [] },
+];
