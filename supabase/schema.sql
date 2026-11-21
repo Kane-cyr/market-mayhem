@@ -48,7 +48,8 @@ create table if not exists cash_adjustments (
   amount_cents bigint not null,
   note text,
   created_at timestamptz not null default now(),
-  run_id uuid references runs(id) on delete set null   -- set once delivered to a run
+  run_id uuid references runs(id) on delete set null,  -- set once delivered to a ranked run
+  claimed boolean not null default false               -- set once delivered to a career game
 );
 
 -- crashes, booms and Market God announcements. player_id null = everyone; game_day null = as soon as possible
@@ -56,7 +57,7 @@ create table if not exists global_events (
   id bigint generated always as identity primary key,
   week text not null,
   kind text not null check (kind in ('crash','boom','announce')),
-  magnitude real not null check (magnitude between -0.4 and 0.4 and abs(magnitude) >= 0.01),
+  magnitude double precision not null check (magnitude between -0.4000001 and 0.4000001 and abs(magnitude) >= 0.0099999),
   game_day integer check (game_day between 0 and 24),
   player_id uuid references players(id) on delete cascade,
   ticker text,
@@ -73,8 +74,25 @@ create table if not exists follows (
   check (follower <> followee)
 );
 
+create table if not exists duels (
+  id uuid primary key default gen_random_uuid(),
+  challenger uuid not null references players(id) on delete cascade,
+  opponent uuid not null references players(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending','active','declined','cancelled')),
+  created_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  check (challenger <> opponent)
+);
+create index if not exists duels_challenger on duels(challenger);
+create index if not exists duels_opponent on duels(opponent);
+
+alter table duels enable row level security;
 alter table follows enable row level security;
 alter table players enable row level security;
 alter table runs enable row level security;
 alter table cash_adjustments enable row level security;
 alter table global_events enable row level security;
+
+-- the server uses the service_role key, which needs explicit table privileges on a new Supabase project
+grant select, insert, update, delete on public.players, public.runs, public.cash_adjustments, public.global_events, public.follows, public.duels to service_role;
+grant usage, select on all sequences in schema public to service_role;
