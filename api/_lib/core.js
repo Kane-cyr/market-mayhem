@@ -151,6 +151,24 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
+  if (op === 'inbox') { // conversations, newest first, with unread counts
+    const ms = await db.messagesFor(p.id), conv = new Map();
+    for (const m of ms) { const other = m.sender === p.id ? m.recipient : m.sender; const c = conv.get(other) || { other, last: m, unread: 0 }; if (m.recipient === p.id && !m.read_at) c.unread++; conv.set(other, c); }
+    const ps = new Map((await db.players()).map(x => [x.id, x]));
+    const rows = [...conv.values()].filter(c => ps.get(c.other)).map(c => ({ nickname: ps.get(c.other).nickname, avatar: ps.get(c.other).avatar || {}, unread: c.unread, last: c.last.body.slice(0, 80), at: c.last.created_at, mine: c.last.sender === p.id }));
+    return ok({ rows, unread: rows.reduce((a, r) => a + r.unread, 0) });
+  }
+  if (op === 'thread') {
+    const x = await db.playerByNick(String(body.nick || '')); if (!x) return bad(404, 'No trader by that name.');
+    const ms = await db.messagesBetween(p.id, x.id); await db.markRead(x.id, p.id);
+    return ok({ nickname: x.nickname, avatar: x.avatar || {}, messages: ms.map(m => ({ mine: m.sender === p.id, body: m.body, at: m.created_at })) });
+  }
+  if (op === 'send') {
+    const x = await db.playerByNick(String(body.nick || '').trim()); if (!x || x.banned) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot message yourself.');
+    const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 500); if (!text) return bad(400, 'Write something first.');
+    if ((await db.recentSent(p.id, 60)) >= 15) return bad(429, 'Slow down. Too many messages in the last minute.');
+    await db.addMessage(p.id, x.id, text); return ok({ ok: true });
+  }
   if (op === 'challenges') { const cs = await db.challengesFor(p.id); return ok({ challenges: await Promise.all(cs.map(c => challengeView(db, c, p.id))) }); }
   if (op === 'start' && body.challenge) {
     const c = await db.challenge(String(body.challenge));
@@ -246,7 +264,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 const clampN = (v, a, b) => Math.min(b, Math.max(a, Number(v)));
 // ---- profile validation: the client is untrusted, so keep only known fields, with bounds
 const int = (v, a, b, d = a) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d; };
-function cleanAvatar(a = {}) { a = a || {}; return { skin: int(a.skin, 0, 5), hair: int(a.hair, 0, 5), hairCol: int(a.hairCol, 0, 5), shirt: int(a.shirt, 0, 7), eyes: int(a.eyes, 0, 2) }; }
+function cleanAvatar(a = {}) { a = a || {}; return { skin: int(a.skin, 0, 5), hair: int(a.hair, 0, 7), hairCol: int(a.hairCol, 0, 7), shirt: int(a.shirt, 0, 9), eyes: int(a.eyes, 0, 2), beard: int(a.beard, 0, 3), hat: int(a.hat, 0, 4), acc: int(a.acc, 0, 4), mouth: int(a.mouth, 0, 3), pants: int(a.pants, 0, 5) }; }
 const ITEM_IDS = new Set(ITEMS.map(i => i.id)), TYPES = new Set(['buy', 'sell', 'short', 'cover']), TK = /^[A-Z]{2,5}$/;
 function cleanProfile(pr = {}, prev = {}) {
   pr = pr || {};

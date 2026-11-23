@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(); let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = []; let mid = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -28,6 +28,11 @@ export function memoryDb() {
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
+    async addMessage(a, b, body) { msgs.push({ id: ++mid, sender: a, recipient: b, body, created_at: now(), read_at: null }); },
+    async messagesFor(pid) { return msgs.filter(m => m.sender === pid || m.recipient === pid).slice().reverse().slice(0, 500).map(clone); },
+    async messagesBetween(a, b) { return msgs.filter(m => (m.sender === a && m.recipient === b) || (m.sender === b && m.recipient === a)).slice(-100).map(clone); },
+    async markRead(from, to) { for (const m of msgs) if (m.sender === from && m.recipient === to && !m.read_at) m.read_at = now(); },
+    async recentSent(pid, secs) { const t = Date.now() - secs * 1000; return msgs.filter(m => m.sender === pid && new Date(m.created_at) > t).length; },
     async createChallenge(c, ids) { const row = { id: randomUUID(), status: 'open', winner: null, created_at: now(), closed_at: null, ...c }; chals.set(row.id, row); chalP.set(row.id, [...ids]); return clone(row); },
     async challenge(id) { return clone(chals.get(id) || null); },
     async challengePlayers(id) { return [...(chalP.get(id) || [])]; },
@@ -70,6 +75,11 @@ export async function supabaseDb(url, key) {
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
+    addMessage: (a, b, body) => one(sb.from('messages').insert({ sender: a, recipient: b, body })),
+    messagesFor: pid => one(sb.from('messages').select('*').or(`sender.eq.${pid},recipient.eq.${pid}`).order('created_at', { ascending: false }).limit(500)),
+    messagesBetween: async (a, b) => (await one(sb.from('messages').select('*').or(`and(sender.eq.${a},recipient.eq.${b}),and(sender.eq.${b},recipient.eq.${a})`).order('created_at', { ascending: false }).limit(100))).reverse(),
+    markRead: (from, to) => one(sb.from('messages').update({ read_at: new Date().toISOString() }).eq('sender', from).eq('recipient', to).is('read_at', null)),
+    recentSent: async (pid, secs) => { const { count, error } = await sb.from('messages').select('*', { count: 'exact', head: true }).eq('sender', pid).gt('created_at', new Date(Date.now() - secs * 1000).toISOString()); if (error) throw new Error(error.message); return count || 0; },
     createChallenge: async (c, ids) => { const row = await one(sb.from('challenges').insert(c).select().single()); await one(sb.from('challenge_players').insert(ids.map(player_id => ({ challenge_id: row.id, player_id })))); return row; },
     challenge: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('challenges').select('*').eq('id', id).maybeSingle()) : null,
     challengePlayers: async id => (await one(sb.from('challenge_players').select('player_id').eq('challenge_id', id))).map(r => r.player_id),
