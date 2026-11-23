@@ -134,7 +134,8 @@
     for (const delay of [0, .7, 1.3]) root.append(h('div', { class: 'mmfx-flash', style: `animation-delay:${delay}s;animation-duration:${2.1 + delay}s` }));
     root.append(h('div', { class: 'mmfx-banner' }, h('i'), 'LIVE · PRESS CONFERENCE'));
     const say = h('div', { class: 'mmfx-say', 'aria-live': 'polite' });
-    const btn = h('button', { class: 'mmfx-go mmfx-open', style: 'display:none' }, 'Open the market');
+    const btn = h('button', { class: 'mmfx-go mmfx-open', style: 'display:none' }, d.ticker ? `Open the $${d.ticker} market` : 'Open the market');
+    if (d.ticker) btn.addEventListener('click', () => { location.hash = '#co-' + d.ticker; });
     const up = d.mag >= 0;
     const tag = d.ticker ? h('span', { class: 'mmfx-tag', style: `background:${up ? '#0a9a5a' : '#d3212f'}` }, `${up ? '▲' : '▼'} ${d.label || d.ticker + ' traders are reacting'}`) : null;
     root.append(h('div', { class: 'mmfx-lower' }, h('div', { class: 'mmfx-who' }, d.who || 'The President'), say, tag, btn));
@@ -247,10 +248,19 @@
     document.body.append(root);
     const stop = e => { if (e.key === 'Enter' && document.activeElement === btn) return; e.stopPropagation(); if (e.key === ' ') e.preventDefault(); };
     document.addEventListener('keydown', stop, true);
-    btn.addEventListener('click', () => { document.removeEventListener('keydown', stop, true); root.remove(); next(); });
+    btn.addEventListener('click', () => { document.removeEventListener('keydown', stop, true); root.remove(); if (job.kind === 'president') tradeWindow(job.data.ticker, next); else next(); });
     if (job.kind === 'cash') setTimeout(() => btn.focus(), 5200);
   }
   const push = (kind, data) => { queue.push({ kind, data }); if (!playing) next(); };
+  // after a presidential announcement the market stays paused for 10 seconds so players can buy or sell first
+  function tradeWindow(ticker, then) {
+    const u = ui(); if (u) u.speed = 0;
+    let left = 10;
+    const bar = h('div', { style: 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9400;background:#b3122b;color:#fff;font:700 14px system-ui;padding:8px 16px;border-radius:999px;box-shadow:0 6px 20px #0008' });
+    const paint = () => { bar.textContent = `⏱ ${left}s to trade${ticker ? ' $' + ticker : ''} before the market reacts`; };
+    paint(); document.body.append(bar);
+    const iv = setInterval(() => { left--; if (left <= 0) { clearInterval(iv); bar.remove(); then(); } else { const w = ui(); if (w) w.speed = 0; paint(); } }, 1000);
+  }
 
   window.mmFx = {
     custom: build => push('custom', build), // build() returns { root, btn }: the scene closes when btn is clicked

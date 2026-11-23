@@ -47,7 +47,7 @@ export function godTick(S) {
       c.buzz += 10;
       if (e.unit) { // spread the move evenly over e.dur game days
         const L = clamp(e.unit === 'usd' ? Math.log(Math.max(0.05, (c.price + e.amt) / c.price)) : Math.log(1 + e.amt / 100), Math.log(0.1), Math.log(11));
-        S.impulses.push({ t: c.ticker, rem: L, left: Math.max(1, Math.round(e.dur * TPD)), start: S.t }); c.sentiment = clamp(c.sentiment + (L > 0 ? 0.3 : -0.3), -1, 1);
+        S.impulses.push({ t: c.ticker, rem: L, left: Math.max(1, Math.round(e.dur * TPD)), start: S.t + 1 }); // starts next tick: a window to trade c.sentiment = clamp(c.sentiment + (L > 0 ? 0.3 : -0.3), -1, 1);
       }
       continue;
     }
