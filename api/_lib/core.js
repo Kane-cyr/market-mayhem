@@ -90,7 +90,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '')); if (!x || x.banned) return bad(404, 'No trader by that name.');
     const [run, followers] = await Promise.all([db.runFor(x.id, weekId()), db.followerCount(x.id)]);
     const viewer = await authPlayer(db, headers); const following = viewer ? (await db.following(viewer.id)).includes(x.id) : false;
-    const { live: _live, ...pub } = x.profile || {};
+    const { live: _live, trades: _trades, career: _career, ...pub } = x.profile || {}; // Hide unverified client snapshots.
     return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: pub, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
@@ -125,7 +125,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   }
   if (op === 'feed') { // recent trades by everyone you follow
     const ids = await db.following(p.id); const rows = [];
-    for (const id of ids.slice(0, 200)) { const x = await db.player(id); if (!x || x.banned) continue; for (const t of (x.profile?.trades || []).slice(-15)) rows.push({ ...t, nickname: x.nickname, avatar: x.avatar || {}, at: x.profile_at }); }
+    for (const id of ids.slice(0, 200)) { const x = await db.player(id); if (!x || x.banned) continue; // Trade history is client-submitted and not verified; do not publish it as a feed. }
     rows.sort((a, b) => (new Date(b.at) - new Date(a.at)) || (b.t - a.t)); return ok({ rows: rows.slice(0, 80), following: ids.length });
   }
   if (op === 'me') { const run = await db.runFor(p.id, weekId()); return ok({ nickname: p.nickname, week: weekId(), run: run && { id: run.id, status: run.status, nw: run.final_nw && Number(run.final_nw), ret: run.ret, reason: run.reject_reason } }); }
