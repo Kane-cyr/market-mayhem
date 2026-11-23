@@ -12,7 +12,7 @@ import { corporateHooks, maybeIPO } from './corporate.js';
 import * as trading from './trading.js';
 import { progressDaily, afterTrade, acceptChallenge } from './progress.js';
 import { insiderDaily, onTrade, isSuspended, buyTip, meet } from './insider.js';
-import { loansDaily, borrow, repay } from './loans.js';
+import { loansDaily, borrow, repay, sharkPay, sharkBeg } from './loans.js';
 import { marginCheck, shortsDaily, short as shortSell, cover as coverShort } from './shorts.js';
 import { explainMoves } from './explain.js';
 import { lifeDaily, buyItem, pawnItem, hype as hypeStock } from './lifestyle.js';
@@ -124,7 +124,7 @@ const ACTIONS = {
   short: (S, t, n) => { if (S.mode?.done) return OVER; if (isSuspended(S)) return SUSPENDED; const r = shortSell(S, t, n); if (r.ok) { afterTrade(S); onTrade(S, r); } return r; },
   cover: (S, t, n) => { if (S.mode?.done) return OVER; const r = coverShort(S, t, n); if (r.ok) { afterTrade(S); onTrade(S, r); } return r; },
   hype: (S, t) => { if (S.mode?.done) return OVER; return hypeStock(S, t); },
-  tip: (S, id) => buyTip(S, id), meet: (S, id) => meet(S, id), borrow: (S, id, amt) => borrow(S, id, amt), repay: (S, id, amt) => repay(S, id, amt),
+  tip: (S, id) => buyTip(S, id), meet: (S, id) => meet(S, id), borrow: (S, id, amt, pledge) => borrow(S, id, amt, pledge), repay: (S, id, amt) => repay(S, id, amt), sharkpay: (S, id) => sharkPay(S, id), sharkbeg: (S, id) => sharkBeg(S, id),
   item: (S, id) => buyItem(S, id), pawn: (S, uid) => pawnItem(S, uid), challenge: (S, id) => acceptChallenge(S, id),
   god: (S, payload) => { applyGod(S, payload); return { ok: true }; },
 };

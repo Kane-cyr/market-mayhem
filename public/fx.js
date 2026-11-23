@@ -56,6 +56,27 @@
   .mmfx-note{font:600 italic clamp(16px,2.6vw,24px)/1.35 Georgia,serif;color:#1a1740;max-width:760px}.mmfx-note span{display:block;font:700 13px system-ui;letter-spacing:.14em;margin-top:6px;color:#55507a;font-style:normal}
   .mmfx-msg .up{color:#0a9a5a}.mmfx-msg .dn{color:#d3212f}
   .mmfx-msg .mmfx-go{background:#1a1740;color:#fff;margin-top:20px;opacity:0;animation:mmfx-in .4s 5.1s forwards}
+  /* ---------- loan shark ---------- */
+  #mmfx.shark{background:#1b120d;animation:mmfx-in .2s,mmfx-shake .5s .55s,mmfx-shake .35s 1.65s,mmfx-shake .35s 2.05s,mmfx-shake .35s 2.45s}
+  @keyframes mmfx-shake{0%,100%{transform:none}20%{transform:translate(-14px,6px)}40%{transform:translate(12px,-8px)}60%{transform:translate(-8px,4px)}80%{transform:translate(6px,-2px)}}
+  .mmfx-room{position:absolute;inset:0;background:linear-gradient(#3a2618,#24170f 62%,#140c08 62%)}
+  .mmfx-window{position:absolute;left:8%;top:10%;width:26%;height:34%;background:linear-gradient(#0b1430,#22305e);border:8px solid #5a3a22;box-shadow:inset 0 0 0 3px #2a1a10}
+  .mmfx-window::after{content:'';position:absolute;inset:auto 8% 10% 8%;height:40%;background:repeating-linear-gradient(90deg,#f7d36b 0 4px,transparent 4px 14px);opacity:.35}
+  .mmfx-door{position:absolute;right:10%;top:12%;width:18%;height:50%;background:#6b4426;border:6px solid #3a2414;transform-origin:right center;animation:mmfx-door .25s .5s ease-in forwards}
+  @keyframes mmfx-door{to{transform:perspective(600px) rotateY(-80deg);background:#4a2e19}}
+  .mmfx-desk{position:absolute;left:0;right:0;bottom:0;height:24%;background:linear-gradient(#5b3b23,#3a2414);border-top:6px solid #7a5032}
+  .mmfx-shark-wrap{position:absolute;left:50%;bottom:16%;width:min(330px,55vw);transform:translateX(70vw);animation:mmfx-walkin .45s .75s ease-out forwards}
+  @keyframes mmfx-walkin{to{transform:translateX(-50%)}}
+  .mmfx-fist{transform-origin:200px 250px;animation:mmfx-punch .3s 1.55s 3 ease-in-out}
+  @keyframes mmfx-punch{50%{transform:translate(-120px,40px) scale(1.25)}}
+  .mmfx-pow{position:absolute;font:900 clamp(30px,6vw,60px) Impact,system-ui;color:#ffe14d;-webkit-text-stroke:3px #b3122b;transform:scale(0) rotate(-12deg);opacity:0;animation:mmfx-pow .5s ease-out forwards}
+  @keyframes mmfx-pow{40%{transform:scale(1.25) rotate(-8deg);opacity:1}100%{transform:scale(1) rotate(-8deg);opacity:0}}
+  .mmfx-hurt{position:absolute;inset:0;background:radial-gradient(transparent 40%,#b3122b99);opacity:0;animation:mmfx-hurt 1.2s 1.6s forwards}
+  @keyframes mmfx-hurt{30%{opacity:1}100%{opacity:.55}}
+  .mmfx-panel{position:absolute;left:50%;bottom:3vh;transform:translateX(-50%);width:min(680px,94vw);background:#0d0d12ee;border:1px solid #ffffff22;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;opacity:0;animation:mmfx-in .4s 2.9s forwards}
+  .mmfx-say2{font:700 clamp(16px,2.6vw,22px)/1.35 Georgia,serif}
+  .mmfx-info{font:14px/1.45 system-ui;color:#cfd2dc}
+  .mmfx-choices{display:flex;gap:10px;flex-wrap:wrap}.mmfx-choices .mmfx-go{flex:1;min-width:200px;font-size:15px;padding:12px 14px}
   @media (prefers-reduced-motion:reduce){.mmfx-flash,.mmfx-mic,.mmfx-pres-head,.mmfx-banner i{animation:none}}
   `);
   document.head.append(style);
@@ -124,6 +145,68 @@
     return { root, btn };
   };
 
+  // ----- loan shark shakedown -----
+  // Each lender has a face: Vinnie (glasses, calculator), Big Tony (gold chain, cigar),
+  // Knuckles (bald, scar, brass knuckles) and the broker (suit, briefcase).
+  const SHARK_LOOK = {
+    vinnie: { skin: '#e2b48e', suit: '#5d6470', shirt: '#d9d9d9', hair: '#9ea3a8', bald: false, wide: 0.85, glasses: true, prop: 'calc', line: 'I ran the numbers. Twice. You owe me' },
+    tony: { skin: '#d9a073', suit: '#2b2b33', shirt: '#7a1f2b', hair: '#141414', bald: false, wide: 1.25, chain: true, prop: 'cigar', line: 'Nobody makes Big Tony wait. You owe me' },
+    knuckles: { skin: '#c98d64', suit: '#3a3a3a', shirt: '#efefef', hair: null, bald: true, wide: 1.15, scar: true, tank: true, prop: 'knuckles', line: 'The boys and me came for our money. You owe us' },
+    broker: { skin: '#efc9a6', suit: '#18234a', shirt: '#ffffff', hair: '#6b4a2b', bald: false, wide: 0.95, tie: '#b3122b', prop: 'case', line: 'Margin call, in person. You owe the firm' },
+  };
+  function sharkSvg(id) {
+    const L = SHARK_LOOK[id] || SHARK_LOOK.tony, w = L.wide;
+    const g = svg('svg', { viewBox: '0 0 300 380', class: 'mmfx-shark' });
+    const bx = (x) => 150 + (x - 150) * w;
+    g.append(svg('path', { d: `M${bx(40)} 380 Q${bx(48)} 240 150 225 Q${bx(252)} 240 ${bx(260)} 380 Z`, fill: L.tank ? L.skin : L.suit })); // body / arms
+    if (L.tank) g.append(svg('path', { d: `M${bx(95)} 380 L${bx(105)} 245 Q150 262 ${bx(195)} 245 L${bx(205)} 380 Z`, fill: L.shirt }));
+    else g.append(svg('path', { d: 'M125 228 L150 300 L175 228 Z', fill: L.shirt }));
+    if (L.tie) g.append(svg('path', { d: 'M144 236 L156 236 L162 300 L150 316 L138 300 Z', fill: L.tie }));
+    if (L.chain) g.append(svg('path', { d: 'M128 236 Q150 286 172 236', stroke: '#f2c14e', 'stroke-width': 6, fill: 'none' }));
+    g.append(svg('rect', { x: 132, y: 190, width: 36, height: 40, rx: 10, fill: L.skin }));                                     // neck
+    g.append(svg('ellipse', { cx: 150, cy: 140, rx: 56 * (0.9 + 0.1 * w), ry: 66, fill: L.skin }));                               // head
+    if (!L.bald) g.append(svg('path', { d: 'M94 132 Q96 72 150 70 Q206 72 206 132 Q196 96 150 96 Q108 96 94 132 Z', fill: L.hair }));
+    g.append(svg('path', { d: 'M112 126 L140 134', stroke: '#2a1a12', 'stroke-width': 7, 'stroke-linecap': 'round' }), svg('path', { d: 'M188 126 L160 134', stroke: '#2a1a12', 'stroke-width': 7, 'stroke-linecap': 'round' })); // angry brows
+    g.append(svg('circle', { cx: 128, cy: 146, r: 6, fill: '#1b1b1b' }), svg('circle', { cx: 172, cy: 146, r: 6, fill: '#1b1b1b' }));
+    if (L.glasses) g.append(svg('rect', { x: 110, y: 134, width: 34, height: 24, rx: 6, fill: 'none', stroke: '#222', 'stroke-width': 4 }), svg('rect', { x: 156, y: 134, width: 34, height: 24, rx: 6, fill: 'none', stroke: '#222', 'stroke-width': 4 }), svg('path', { d: 'M144 144 L156 144', stroke: '#222', 'stroke-width': 4 }));
+    if (L.scar) g.append(svg('path', { d: 'M170 108 L186 160', stroke: '#8a3b2e', 'stroke-width': 4 }), svg('path', { d: 'M172 122 L184 120 M175 134 L187 132 M178 146 L190 144', stroke: '#8a3b2e', 'stroke-width': 2 }));
+    g.append(svg('path', { d: 'M128 182 Q150 172 172 182', stroke: '#5a2a22', 'stroke-width': 5, fill: 'none', 'stroke-linecap': 'round' })); // scowl
+    if (L.prop === 'cigar') g.append(svg('rect', { x: 166, y: 176, width: 34, height: 8, rx: 3, fill: '#7a4a24' }), svg('circle', { cx: 202, cy: 180, r: 4, fill: '#ff6a00' }));
+    const fist = svg('g', { class: 'mmfx-fist' });
+    fist.append(svg('circle', { cx: 252, cy: 250, r: 26, fill: L.skin }));
+    if (L.prop === 'knuckles') fist.append(svg('path', { d: 'M232 236 Q252 226 272 236', stroke: '#c9c9c9', 'stroke-width': 8, fill: 'none' }));
+    if (L.prop === 'calc') fist.append(svg('rect', { x: 230, y: 214, width: 40, height: 54, rx: 4, fill: '#333' }), svg('rect', { x: 236, y: 220, width: 28, height: 10, fill: '#9fe39f' }));
+    if (L.prop === 'case') fist.append(svg('rect', { x: 222, y: 252, width: 60, height: 40, rx: 5, fill: '#4a2f1a' }));
+    g.append(fist);
+    return g;
+  }
+  const sceneShark = d => {
+    const root = h('div', { id: 'mmfx', class: 'shark', role: 'dialog', 'aria-label': 'Loan shark' });
+    const room = h('div', { class: 'mmfx-room' });
+    room.append(h('div', { class: 'mmfx-window' }), h('div', { class: 'mmfx-door' }), h('div', { class: 'mmfx-desk' }));
+    const who = h('div', { class: 'mmfx-shark-wrap' }); who.append(sharkSvg(d.shark));
+    root.append(room, who);
+    for (const [txt, x, y, t] of [['BANG!', 64, 30, .55], ['WHAM!', 30, 40, 1.65], ['POW!', 58, 52, 2.05], ['OOF!', 40, 30, 2.45]])
+      root.append(h('div', { class: 'mmfx-pow', style: `left:${x}%;top:${y}%;animation-delay:${t}s` }, txt));
+    root.append(h('div', { class: 'mmfx-hurt' }));
+    const L = SHARK_LOOK[d.shark] || SHARK_LOOK.tony;
+    const panel = h('div', { class: 'mmfx-panel' });
+    const btn = h('button', { class: 'mmfx-go', style: 'display:none;background:#2962ff;color:#fff' }, 'Continue');
+    const say = h('div', { class: 'mmfx-say2' }, `${d.who}: “${L.line} ${money(d.owed)}. Right now.”`);
+    const short = d.cash < d.owed;
+    const info = h('div', { class: 'mmfx-info' }, `You have ${money(d.cash)} in cash.${short ? ' Pay now and they take the rest from your stuff' + (d.pledged?.length ? ' (starting with your ' + d.pledged.join(', ') + ')' : '') + ', then your shares.' : ''}`);
+    const left = d.maxBegs - d.begs;
+    const pay = h('button', { class: 'mmfx-go', style: 'background:#0a9a5a;color:#fff' }, `Pay now (${money(d.owed)})`);
+    const beg = h('button', { class: 'mmfx-go', style: 'background:#3a3a46;color:#fff' }, left > 0 ? `Beg for more time (+30%, 2 days · ${left} left)` : 'Beg anyway (they are done listening)');
+    const choices = h('div', { class: 'mmfx-choices' }, pay, beg);
+    const result = h('div', { class: 'mmfx-info', style: 'font-weight:700' });
+    panel.append(say, info, choices, result, btn); root.append(panel);
+    const done = text => { choices.remove(); info.remove(); result.textContent = text; btn.style.display = ''; btn.focus(); };
+    pay.onclick = () => { const r = d.onPay?.() || {}; done(r.ok === false ? r.error : r.left > 0 ? `They took ${money(r.took / 100)}${r.toys?.length ? ', your ' + r.toys.join(', ') : ''}${r.sold?.length ? ' and sold your ' + r.sold.join(', ') : ''}. You still came up ${money(r.left / 100)} short, so every shark in town has blacklisted you.` : `Paid. They took ${money(r.took / 100)}${r.toys?.length ? ', plus your ' + r.toys.join(', ') : ''}. They leave, slowly.`); };
+    beg.onclick = () => { const r = d.onBeg?.() || {}; done(r.ok === false ? r.error : r.refused ? `“Begging time is over.” They took ${money(r.took / 100)}${r.toys?.length ? ', your ' + r.toys.join(', ') : ''}${r.left > 0 ? `. You are still ${money(r.left / 100)} short and blacklisted.` : '.'}` : `They give you 2 more days. You now owe ${money(r.owed / 100)}. Your face hurts.`); };
+    return { root, btn };
+  };
+
   const sceneCash = d => {
     const gift = d.reset || d.dollars > 0;
     const root = h('div', { id: 'mmfx', class: 'cash', role: 'dialog', 'aria-label': 'Market God' });
@@ -160,7 +243,7 @@
     if (!job) { playing = false; const u = ui(); if (u && savedSpeed != null) u.speed = savedSpeed; savedSpeed = null; window.__mm?.render?.(); return; }
     playing = true;
     const u = ui(); if (u) { if (savedSpeed == null) savedSpeed = u.speed; u.speed = 0; }
-    const { root, btn } = job.kind === 'president' ? sceneRally(job.data) : sceneCash(job.data);
+    const { root, btn } = job.kind === 'president' ? sceneRally(job.data) : job.kind === 'shark' ? sceneShark(job.data) : sceneCash(job.data);
     document.body.append(root);
     const stop = e => { if (e.key === 'Enter' && document.activeElement === btn) return; e.stopPropagation(); if (e.key === ' ') e.preventDefault(); };
     document.addEventListener('keydown', stop, true);
@@ -170,6 +253,7 @@
   const push = (kind, data) => { queue.push({ kind, data }); if (!playing) next(); };
 
   window.mmFx = {
+    shark: d => push('shark', d),
     president: d => push('president', { label: String(d.label || '').slice(0, 60), who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
     cash: (dollars, note) => { if (Number.isFinite(dollars) && Math.abs(dollars) >= 1) push('cash', { dollars, note: note ? String(note).slice(0, 200) : '' }); },
     reset: () => push('cash', { dollars: 0, reset: true }),
