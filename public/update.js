@@ -2,6 +2,10 @@
 // does not keep running an old copy. Checks the page's ETag every few minutes.
 (() => {
   'use strict';
+  // The add-ons build panels with replaceChildren(a, cond ? b : null, ...). Browsers print a null child as the
+  // word "null", so drop null and undefined children everywhere instead (this file loads before the others).
+  const rc = Element.prototype.replaceChildren;
+  Element.prototype.replaceChildren = function (...kids) { return rc.apply(this, kids.filter(k => k != null)); };
   let base = null, shown = false;
   async function tag() {
     try { const r = await fetch('/', { method: 'HEAD', cache: 'no-store' }); return r.ok ? r.headers.get('etag') : null; } catch { return null; }

@@ -27,7 +27,7 @@
   #mmd-back.on{display:flex}
   #mmd{width:min(520px,100%);background:var(--panel,#161a25);color:var(--text,#d1d4dc);border:1px solid var(--line2,#2f3545);border-radius:12px;padding:16px;font:14px/1.45 system-ui,sans-serif}
   #mmd h2{margin:0 0 4px;font-size:18px}#mmd .sub{color:var(--mute,#8a8fa0);font-size:12px;margin-bottom:12px}
-  #mmd .row{display:flex;gap:8px;margin-bottom:12px}
+  #mmd .row{display:flex;gap:8px;margin-bottom:12px;height:auto;cursor:auto;border-left:0}
   #mmd input{flex:1;min-width:0;background:var(--bg,#0f121a);color:inherit;border:1px solid var(--line2,#2f3545);border-radius:8px;padding:8px 10px;font:inherit}
   #mmd button{cursor:pointer;border:1px solid var(--line2,#2f3545);background:transparent;color:inherit;border-radius:8px;padding:7px 12px;font:inherit}
   #mmd button.p{background:#2962ff;border-color:#2962ff;color:#fff}#mmd button.g{background:#089981;border-color:#089981;color:#fff}

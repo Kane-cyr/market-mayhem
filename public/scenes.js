@@ -25,7 +25,7 @@
   .scn .panel{position:relative;z-index:3;margin-bottom:4vh;width:min(680px,94vw);background:#0d0d12ee;border:1px solid #ffffff22;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;animation:scn-up .5s .4s both}
   @keyframes scn-up{from{opacity:0;transform:translateY(24px)}}
   .scn .kick{font:800 12px system-ui;letter-spacing:.16em;color:#f7c948}.scn .big{font:800 clamp(22px,4vw,34px)/1.15 system-ui}.scn .say{font:600 clamp(16px,2.4vw,20px)/1.4 Georgia,serif}.scn .info{color:#cfd2dc;font-size:14px}
-  .scn .row{display:flex;gap:10px;flex-wrap:wrap}.scn button{cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font:700 15px system-ui;color:#fff;background:#2962ff;flex:1;min-width:180px}
+  .scn .row{display:flex;gap:10px;flex-wrap:wrap;height:auto;cursor:auto;border-left:0}.scn button{cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font:700 15px system-ui;color:#fff;background:#2962ff;flex:1;min-width:180px}
   .scn button.g{background:#0a9a5a}.scn button.r{background:#b3122b}.scn button.d{background:#3a3a46}
   .scn .art{position:absolute;inset:0;z-index:1;pointer-events:none}
   /* SEC raid */
@@ -63,7 +63,7 @@
   @keyframes scn-cover{from{transform:translateX(-50%) rotate(-30deg) scale(.3);opacity:0}}
   .scn.mag .mast{font:900 clamp(30px,7vw,52px)/1 Georgia,serif;text-align:center;letter-spacing:.04em;padding-top:10px;color:#8a1c1c}.scn.mag .issue{text-align:center;font:700 10px system-ui;letter-spacing:.2em}
   .scn.mag .cover .scn-av{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
-  .scn.mag .tag{position:absolute;left:10px;right:10px;bottom:12px;font:900 clamp(18px,4vw,28px)/1.05 system-ui;text-transform:uppercase;text-shadow:0 2px 0 #f7e7b4}
+  .scn.mag .tag{position:absolute;left:12px;right:12px;top:22%;text-align:center;font:900 clamp(18px,4vw,28px)/1.05 system-ui;text-transform:uppercase;text-shadow:0 2px 0 #f7e7b4}
   .scn-av svg{display:block}`));
 
   function scene(cls, art, kick, big, say, info, choices) {
@@ -152,7 +152,7 @@
     const G = S(); if (!G || !G.player) return;
     if (!mark || mark.game !== G) { mark = snapshot(G); return; } // a new or loaded game: start fresh, never replay old moments
     const p = G.player;
-    if ((p.level || 0) > (mark.level || 0)) { for (let l = (mark.level || 0) + 1; l <= p.level; l++) if (COVERS[l]) cover(l); mark.level = p.level; }
+    if ((p.level || 0) > (mark.level || 0)) { let top = 0; for (let l = (mark.level || 0) + 1; l <= p.level; l++) if (COVERS[l]) top = l; if (top) cover(top); mark.level = p.level; } // one cover, for the highest level reached
     const open = !!p.insider?.case; if (open && !mark.caseOpen) raid(); mark.caseOpen = open;
     for (const n of p.notifications) if (!mark.notes.has(n)) { mark.notes.add(n); if (/Margin warning|broker covered/i.test(n.text || '')) marginCall(n.text); }
     for (const o of p.life?.owned || []) if (!mark.items.has(o.uid)) { mark.items.add(o.uid); if (/yacht|island/i.test(o.id)) yachtParty(o.id.replace(/_/g, ' ')); }

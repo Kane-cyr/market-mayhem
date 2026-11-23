@@ -61,7 +61,7 @@
   #mmg-back{position:fixed;inset:0;z-index:9300;background:rgba(5,8,14,.82);display:none;align-items:center;justify-content:center;padding:12px;overflow:auto}
   #mmg-back.on{display:flex}
   #mmg{width:min(560px,100%);background:var(--panel,#161a25);color:var(--text,#d1d4dc);border:1px solid var(--line2,#2f3545);border-radius:14px;padding:22px 22px 16px;font:15px/1.55 system-ui,sans-serif;box-shadow:0 20px 60px #000a}
-  #mmg .gic{font-size:40px;line-height:1}#mmg h2{margin:8px 0 10px;font-size:22px}
+  #mmg .gic{font-size:40px;line-height:1.15}#mmg h2{margin:8px 0 10px;font-size:22px}
   #mmg p{margin:0 0 10px;color:var(--dim,#b4b8c4)}#mmg p b{color:var(--text,#fff)}
   #mmg .gdots{display:flex;gap:6px;justify-content:center;margin:12px 0}
   #mmg .gdots i{width:8px;height:8px;border-radius:50%;background:var(--line2,#2f3545)}#mmg .gdots i.on{background:#2962ff}

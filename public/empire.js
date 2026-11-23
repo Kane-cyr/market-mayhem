@@ -14,6 +14,7 @@
     for (const c of kids.flat()) if (c != null) n.append(c.nodeType ? c : document.createTextNode(String(c)));
     return n;
   };
+  const fill = (b, ...kids) => b.replaceChildren(...kids.filter(k => k != null)); // replaceChildren would print null as text
   const hash = str => { let x = 2166136261; for (const ch of str) x = Math.imul(x ^ ch.charCodeAt(0), 16777619); return x >>> 0; };
   const FIRST = ['Margaret', 'Viktor', 'Henrietta', 'Rufus', 'Ingrid', 'Desmond', 'Priya', 'Otto', 'Celeste', 'Barnaby', 'Lucinda', 'Ezra'];
   const LAST = ['Vane', 'Okafor', 'Lindqvist', 'Montague', 'Sato', 'Blackwood', 'Moreau', 'Castellano', 'Hargreaves', 'Quint', 'Achterberg', 'Delacroix'];
@@ -128,7 +129,7 @@
   #mme button.p{background:#2962ff;border-color:#2962ff;color:#fff}#mme button:disabled{opacity:.5;cursor:default}
   #mme .card{border:1px solid var(--line,#232836);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--bg2,#131722)}
   #mme select,#mme input[type=range]{width:100%}#mme select{background:var(--bg,#0f121a);color:inherit;border:1px solid var(--line2,#2f3545);border-radius:8px;padding:8px}
-  #mme .row{display:flex;justify-content:space-between;gap:8px;align-items:center}#mme .up{color:#22ab94}#mme .down{color:#f7525f}#mme .err{color:#f7525f}
+  #mme .row{display:flex;justify-content:space-between;gap:8px;align-items:center;height:auto;cursor:auto;border-left:0}#mme .up{color:#22ab94}#mme .down{color:#f7525f}#mme .err{color:#f7525f}
   #mmb{position:fixed;inset:0;z-index:9500;background:linear-gradient(#2b1d14,#1a120c);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;font-family:system-ui,sans-serif;color:#fff;animation:mmb-in .3s}
   @keyframes mmb-in{from{opacity:0}}
   #mmb .wall{position:absolute;inset:0 0 38% 0;background:repeating-linear-gradient(90deg,#3a2718 0 80px,#33221500 80px 84px),linear-gradient(#3a2718,#2a1c11)}
@@ -166,7 +167,7 @@
     const G = S(); if (!G) return;
     const nw = window.__mm.nw().total, ok = career() && nw >= MIN_NW, list = empire();
     const head = h('div', { class: 'row' }, h('h2', {}, '🏢 Buy companies'), h('button', { onclick: close, 'aria-label': 'Close' }, '×'));
-    if (!career()) return box.replaceChildren(head, h('p', {}, 'Company buyouts are for your career game. Head back to your career from the Menu.'));
+    if (!career()) return fill(box, head, h('p', {}, 'Company buyouts are for your career game. Head back to your career from the Menu.'));
     const mine = list.length ? h('div', { class: 'card' }, h('b', {}, 'Your companies'), ...list.map((o, i) => h('div', { class: 'row', style: 'margin-top:8px' },
       h('div', {}, h('div', {}, h('b', {}, o.name), ' ', h('span', { class: 'mut' }, o.tk)), h('div', { class: 'mut' }, `Paid ${usd(o.paid)} · worth about ${usd(coValue(o))} · makes ${o.margin >= 0 ? '' : '−'}${usd(Math.abs(o.rev * o.margin / 360 * 100))} a day · earned ${usd(o.earned || 0)} so far`)),
       h('div', { style: 'display:flex;gap:6px' }, h('button', { onclick: () => { ann = ann === i ? null : i; draw(); } }, '📢 Announce'), h('button', { onclick: () => { if (confirm(`Sell ${o.name}? Buyers pay roughly what it is worth, give or take 15%.`)) { const got = sell(i); err = got ? `Sold for ${usd(got)}.` : ''; draw(); } } }, 'Sell'), h('button', { title: 'List it on the exchange and sell to the public', onclick: () => { if (confirm(`Take ${o.name} public? You ring the bell and sell it to the market, usually for 10-40% more than it is worth.`)) { close(); window.mmScenes?.ipo(i); } } }, '🔔 IPO'))))) : null;
@@ -181,7 +182,7 @@
       mine.append(h('div', { style: 'margin-top:10px;border-top:1px solid var(--line,#232836);padding-top:10px;display:flex;flex-direction:column;gap:6px' }, h('b', {}, `📢 Announcement from ${o.name}`), kind, tgt, say, effect,
         h('div', { style: 'display:flex;justify-content:flex-end' }, h('button', { class: 'p', onclick: async () => { const r = await announce(ann, kind.value, tgt.value, say.value.trim()); err = r.error || `Announced: ${r.head}`; if (r.ok) ann = null; draw(); } }, 'Make the announcement'))));
     }
-    if (!ok) return box.replaceChildren(head, err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err' }, err) : null, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. It pays you its profits every game day.'), mine);
+    if (!ok) return fill(box, head, err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err' }, err) : null, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. It pays you its profits every game day.'), mine);
     const cos = G.order.map(t => G.companies[t]).filter(c => c?.status === 'active').sort((a, b) => value(a) - value(b));
     if (!pick || !G.companies[pick] || G.companies[pick].status !== 'active') pick = cos[0]?.ticker || '';
     const c = G.companies[pick], v = c ? value(c) : 0, amt = Math.round(v * (1 + prem)), o = c ? owner(pick) : null, t = talks()[pick];
@@ -190,7 +191,7 @@
     const amtEl = h('b', {}, usd(amt)), premEl = h('span', {}, `${Math.round(prem * 100)}%`);
     slider.oninput = () => { prem = Number(slider.value) / 100; premEl.textContent = `${slider.value}%`; amtEl.textContent = usd(Math.round(v * (1 + prem))); };
     const lastAsk = t && t.rounds > 0 ? h('div', { class: 'mut' }, `Last time they asked for about a ${(t.ask * 100).toFixed(0)}% premium.`) : null;
-    box.replaceChildren(head, h('div', { class: 'mut', style: 'margin-top:4px' }, `Net worth ${usd(nw)} · cash ${usd(G.player.cash)}`), mine,
+    fill(box, head, h('div', { class: 'mut', style: 'margin-top:4px' }, `Net worth ${usd(nw)} · cash ${usd(G.player.cash)}`), mine,
       h('div', { class: 'card' }, h('b', {}, 'Make an offer'), h('div', { style: 'margin:8px 0' }, sel),
         c ? h('div', { class: 'mut' }, `Owner: ${o.name}. Market value ${usd(v)}. Makes about ${usd(Math.abs(c.revenue * c.margin))} a year ${c.margin >= 0 ? 'in profit' : 'in losses'}.`) : null, lastAsk,
         h('div', { class: 'row', style: 'margin-top:10px' }, h('span', {}, 'Premium over market value'), premEl), slider,

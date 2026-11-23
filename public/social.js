@@ -33,7 +33,7 @@
   #mms button.p{background:#2962ff;border-color:#2962ff;color:#fff}#mms button.on{border-color:#2962ff;background:#2962ff22}
   #mms textarea,#mms input,#mms select{width:100%;background:var(--bg,#0f121a);color:inherit;border:1px solid var(--line2,#2f3545);border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;box-sizing:border-box}
   #mms .cmp{padding:12px 14px;border-bottom:1px solid var(--line,#232836);display:flex;flex-direction:column;gap:8px}
-  #mms .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  #mms .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;height:auto;cursor:auto;border-left:0}
   #mms .post{padding:12px 14px;border-bottom:1px solid var(--line,#232836);display:flex;gap:10px}
   #mms .post .main{flex:1;min-width:0}#mms .nm{font-weight:700;cursor:pointer}#mms .mut{color:var(--mute,#8a8fa0);font-size:12px}
   #mms .txt{margin:3px 0 6px;white-space:pre-wrap;word-break:break-word}#mms .tk{color:#2962ff}
