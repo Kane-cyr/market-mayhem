@@ -46,6 +46,49 @@ async function challengeView(db, c, me) {
   return { id: c.id, title: c.title, goal: c.goal, startCash: Number(c.start_cash), prize: Number(c.prize), days: c.days, status: c.status, created: c.created_at,
     winner: c.winner ? pm.get(c.winner)?.nickname || '?' : null, rows: rows.map(({ id, ...r }) => (me === null ? { id, ...r } : r)) };
 }
+// ---- the players' social feed. Posts that name a stock with a bullish or bearish stance, and the likes and
+// reposts they get, are fed into the crowd flow, so a viral post moves that stock in everyone else's market.
+const SOCIAL_W = { post: 0.004, like: 0.001, repost: 0.003, comment: 0.0005 };
+const TICK_RE = /\$([A-Z]{2,5})\b/;
+async function socialFlow(db, pid, post, kind) { if (post?.ticker && post.stance) await db.addFlows([{ player_id: pid, ticker: post.ticker, frac: post.stance * SOCIAL_W[kind] }]); }
+async function feedView(db, me, posts) {
+  const ids = posts.map(x => x.id).concat(posts.map(x => x.repost_of).filter(Boolean));
+  const [players, stats, orig] = await Promise.all([db.players(), db.postStats(ids, me), db.postsByIds(posts.map(x => x.repost_of).filter(Boolean))]);
+  const pm = new Map(players.map(x => [x.id, x])), om = new Map(orig.map(x => [x.id, x]));
+  const one = x => { const a = pm.get(x.author), st = stats[x.id] || {}; return { id: x.id, nickname: a?.nickname || '?', avatar: a?.avatar || {}, mine: x.author === me, body: x.body, ticker: x.ticker, stance: x.stance, at: x.created_at, edited: !!x.edited_at, likes: st.likes || 0, liked: !!st.liked, comments: st.comments || 0, reposts: st.reposts || 0 }; };
+  return posts.filter(x => pm.get(x.author) && !pm.get(x.author).banned).map(x => ({ ...one(x), repost: x.repost_of && om.get(x.repost_of) ? one(om.get(x.repost_of)) : null }));
+}
+async function handleSocial(db, p, op, body) {
+  const text = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+  if (op === 'sfeed') { const posts = await db.posts(Number(body.before) || null, 50); return ok({ posts: await feedView(db, p.id, posts) }); }
+  if (op === 'post') {
+    const b = text(body.body); if (!b) return bad(400, 'Write something first.');
+    if ((await db.recentPosts(p.id, 60)) >= 5) return bad(429, 'Slow down. Five posts a minute is plenty.');
+    const tk = (String(body.ticker || '').toUpperCase().match(/^[A-Z]{2,5}$/) || b.match(TICK_RE)?.slice(1) || [null])[0];
+    const stance = tk ? Math.max(-1, Math.min(1, Math.round(Number(body.stance) || 0))) : 0;
+    const post = await db.addPost({ author: p.id, body: b, ticker: tk, stance }); await socialFlow(db, p.id, post, 'post'); return ok({ ok: true });
+  }
+  const post = await db.post(Number(body.id)); if (!post) return bad(404, 'That post is gone.');
+  if (op === 'post_edit') {
+    if (post.author !== p.id) return bad(403, 'You can only edit your own posts.');
+    const b = text(body.body); if (!b) return bad(400, 'Write something first.');
+    await db.updatePost(post.id, { body: b, edited_at: new Date().toISOString() }); return ok({ ok: true });
+  }
+  if (op === 'post_delete') { if (post.author !== p.id) return bad(403, 'You can only delete your own posts.'); await db.deletePost(post.id); return ok({ ok: true }); }
+  if (op === 'like') { const on = !!body.on; const changed = await db.setLike(post.id, p.id, on); if (changed && on) await socialFlow(db, p.id, post, 'like'); return ok({ ok: true }); }
+  if (op === 'repost') {
+    if (post.author === p.id) return bad(400, 'You cannot repost yourself.');
+    const src = post.repost_of ? (await db.post(post.repost_of)) || post : post;
+    if ((await db.recentPosts(p.id, 60)) >= 5) return bad(429, 'Slow down.');
+    await db.addPost({ author: p.id, body: text(body.body) || '🔁', ticker: src.ticker, stance: src.stance, repost_of: src.id }); await socialFlow(db, p.id, src, 'repost'); return ok({ ok: true });
+  }
+  if (op === 'comment') { const b = text(body.body); if (!b) return bad(400, 'Write something first.'); await db.addComment(post.id, p.id, b); await socialFlow(db, p.id, post, 'comment'); return ok({ ok: true }); }
+  if (op === 'comments') {
+    const [cs, players] = await Promise.all([db.comments(post.id), db.players()]); const pm = new Map(players.map(x => [x.id, x]));
+    return ok({ comments: cs.map(c => ({ nickname: pm.get(c.author)?.nickname || '?', body: c.body, at: c.created_at, mine: c.author === p.id })) });
+  }
+  return bad(404, 'Unknown request.');
+}
 async function handleDuel(db, p, op, body) {
   if (op === 'duels') { const ds = await db.duelsFor(p.id); const views = await Promise.all(ds.slice(0, 30).map(d => duelView(db, d, p.id))); return ok({ duels: views }); }
   if (op === 'duel_create') {
@@ -151,6 +194,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
+  if (['sfeed', 'post', 'post_edit', 'post_delete', 'like', 'repost', 'comment', 'comments'].includes(op)) return handleSocial(db, p, op, body);
   if (op === 'crowd') { // everyone's career trades push prices for everyone else: report yours, collect theirs
     const fl = body.flows && typeof body.flows === 'object' ? Object.entries(body.flows).slice(0, 60) : [];
     const rows = fl.filter(([t, v]) => /^[A-Z]{2,5}$/.test(t) && Number.isFinite(Number(v)) && Number(v) !== 0).map(([t, v]) => ({ player_id: p.id, ticker: t, frac: Math.max(-1, Math.min(1, Number(v))) }));

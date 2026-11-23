@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = []; let mid = 0; let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = []; let mid = 0, pid2 = 0, cid2 = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -28,6 +28,17 @@ export function memoryDb() {
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
+    async addPost(x) { const row = { id: ++pid2, created_at: now(), edited_at: null, repost_of: null, ...x }; posts.push(row); return clone(row); },
+    async post(id) { return clone(posts.find(x => x.id === id) || null); },
+    async posts(before, n) { return posts.filter(x => !before || x.id < before).slice().reverse().slice(0, n).map(clone); },
+    async postsByIds(ids) { return posts.filter(x => ids.includes(x.id)).map(clone); },
+    async updatePost(id, patch) { const x = posts.find(q => q.id === id); if (x) Object.assign(x, patch); },
+    async deletePost(id) { for (let i = posts.length - 1; i >= 0; i--) if (posts[i].id === id || posts[i].repost_of === id) posts.splice(i, 1); },
+    async recentPosts(pid, secs) { const t = new Date(Date.now() - secs * 1000).toISOString(); return posts.filter(x => x.author === pid && x.created_at > t).length; },
+    async setLike(id, pid, on) { const k = id + ':' + pid, had = likes.has(k); if (on) likes.add(k); else likes.delete(k); return had !== on; },
+    async addComment(id, pid, body) { comments.push({ id: ++cid2, post_id: id, author: pid, body, created_at: now() }); },
+    async comments(id) { return comments.filter(c => c.post_id === id).map(clone); },
+    async postStats(ids, me) { const o = {}; for (const id of ids) o[id] = { likes: [...likes].filter(k => k.startsWith(id + ':')).length, liked: likes.has(id + ':' + me), comments: comments.filter(c => c.post_id === id).length, reposts: posts.filter(x => x.repost_of === id).length }; return o; },
     async addFlows(rows) { for (const r of rows) flows.push({ ...r, created_at: now() }); },
     async flowsSince(t, notPid) { return flows.filter(f => f.created_at > t && f.player_id !== notPid).map(clone); },
     async pruneFlows(t) { for (let i = flows.length - 1; i >= 0; i--) if (flows[i].created_at < t) flows.splice(i, 1); },
@@ -78,6 +89,22 @@ export async function supabaseDb(url, key) {
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
+    addPost: x => one(sb.from('posts').insert(x).select().single()),
+    post: id => Number.isInteger(id) ? one(sb.from('posts').select('*').eq('id', id).maybeSingle()) : null,
+    posts: (before, n) => { let q = sb.from('posts').select('*').order('id', { ascending: false }).limit(n); if (before) q = q.lt('id', before); return one(q); },
+    postsByIds: ids => ids.length ? one(sb.from('posts').select('*').in('id', ids)) : [],
+    updatePost: (id, patch) => one(sb.from('posts').update(patch).eq('id', id)),
+    deletePost: id => one(sb.from('posts').delete().eq('id', id)),
+    recentPosts: async (pid, secs) => { const { count, error } = await sb.from('posts').select('*', { count: 'exact', head: true }).eq('author', pid).gt('created_at', new Date(Date.now() - secs * 1000).toISOString()); if (error) throw new Error(error.message); return count || 0; },
+    setLike: async (id, pid, on) => { if (on) { const { error } = await sb.from('post_likes').insert({ post_id: id, player_id: pid }); if (error) { if (error.code === '23505') return false; throw new Error(error.message); } return true; } const d = await one(sb.from('post_likes').delete().eq('post_id', id).eq('player_id', pid).select()); return !!d?.length; },
+    addComment: (id, pid, body) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body })),
+    comments: id => one(sb.from('post_comments').select('*').eq('post_id', id).order('created_at').limit(100)),
+    postStats: async (ids, me) => {
+      const o = {}; if (!ids.length) return o; for (const id of ids) o[id] = { likes: 0, liked: false, comments: 0, reposts: 0 };
+      const [lk, cm, rp] = await Promise.all([one(sb.from('post_likes').select('post_id,player_id').in('post_id', ids)), one(sb.from('post_comments').select('post_id').in('post_id', ids)), one(sb.from('posts').select('repost_of').in('repost_of', ids))]);
+      for (const x of lk) { o[x.post_id].likes++; if (x.player_id === me) o[x.post_id].liked = true; } for (const x of cm) o[x.post_id].comments++; for (const x of rp) o[x.repost_of].reposts++;
+      return o;
+    },
     addFlows: rows => one(sb.from('flows').insert(rows)),
     flowsSince: (t, notPid) => one(sb.from('flows').select('ticker,frac').gt('created_at', t).neq('player_id', notPid).limit(5000)),
     pruneFlows: t => one(sb.from('flows').delete().lt('created_at', t)),
