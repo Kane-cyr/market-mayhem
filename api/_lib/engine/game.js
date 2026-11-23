@@ -147,9 +147,10 @@ export const godSync = (S, payload) => perform(S, 'god', payload);
 
 /** Rebuild a weekly run from its starting god settings and action log. Throws on any malformed or
  * impossible log. Returns the final state; the caller compares net worth with the claimed score. */
-export function replayRun({ week, god }, actions, { maxActions = 5000 } = {}) {
+export function replayRun({ week, god, days }, actions, { maxActions = 5000 } = {}) {
   if (!Array.isArray(actions) || actions.length > maxActions) throw new Error('Bad action log.');
   const S = createWeekly(week); if (god) applyGod(S, god);
+  if (days) S.mode.endT = S.mode.startT + days * TPD; // Market God challenges can be shorter than 24 days
   for (const a of actions) {
     if (!Array.isArray(a) || !Number.isInteger(a[0]) || typeof a[1] !== 'string' || !ACTIONS[a[1]]) throw new Error('Bad action entry.');
     const [t, name, ...args] = a;

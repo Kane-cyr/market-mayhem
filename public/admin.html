@@ -51,7 +51,7 @@ async function api(op, body = {}) {
   if (r.status === 401) { KEY = ''; sessionStorage.removeItem('mm.admin'); render(); throw new Error(j.error); }
   if (!r.ok) throw new Error(j.error || 'Request failed'); return j;
 }
-async function load() { try { ST.data = await api('overview'); ST.week ||= ST.data.week; if (!ST.companies.length) ST.companies = (await api('companies')).companies; render(); } catch (e) { toast(e.message, 1); } }
+async function load() { try { [ST.data, ST.chals] = await Promise.all([api('overview'), api('challenges').then(r => r.challenges).catch(() => [])]); ST.week ||= ST.data.week; if (!ST.companies.length) ST.companies = (await api('companies')).companies; render(); } catch (e) { toast(e.message, 1); } }
 async function act(op, body, msg) { try { await api(op, body); toast(msg); await load(); } catch (e) { toast(e.message, 1); } }
 
 function loginView() {
@@ -69,8 +69,8 @@ ${moneyCell}<td>${status}</td>
   <td style="min-width:230px"><div class="ctl"><span>Vol</span><input type="range" min="-2" max="2" step="0.1" value="${Math.log2(p.vol).toFixed(1)}" data-k="vol"><span class="mono" data-o="vol">${volLabel(p.vol)}</span></div>
     <div class="ctl"><span>Luck</span><input type="range" min="-1" max="1" step="0.05" value="${p.luck}" data-k="luck"><span class="mono" data-o="luck">${p.luck > 0 ? '+' : ''}${p.luck.toFixed(2)}</span></div>
     <div class="row2"><button class="sm gold" data-a="mods">Apply</button><button class="sm" data-a="normal">Reset to fair</button></div></td>
-  <td style="min-width:180px"><div class="row2" style="margin-top:0"><input type="number" placeholder="$ e.g. 5000 / -2500" data-k="cash" aria-label="Cash amount"><button class="sm" data-a="cash">Send</button></div>
-    <div class="row2">${p.banned ? '<button class="sm" data-a="unban">Unban</button>' : '<button class="sm danger" data-a="ban">Ban</button>'}${r ? `<button class="sm" data-a="reset" title="Delete this week's run so they can play again">Reset run</button>${r.status === 'submitted' ? '<button class="sm danger" data-a="remove">Remove score</button>' : ''}` : ''}${p.locked ? '<button class="sm" data-a="unlock">Unlock</button>' : ''}<button class="sm" data-a="pin">New PIN</button></div></td></tr>`;
+  <td style="min-width:180px"><div class="row2" style="margin-top:0"><input type="number" placeholder="$ e.g. 5000 / -2500" data-k="cash" aria-label="Cash amount"><button class="sm" data-a="cash">Send</button></div><input placeholder="Message from the Market God (optional)" data-k="note" maxlength="200" aria-label="Message" style="margin-top:6px;font-size:12px">
+    <div class="row2">${p.banned ? '<button class="sm" data-a="unban">Unban</button>' : '<button class="sm danger" data-a="ban">Ban</button>'}${r ? `<button class="sm" data-a="reset" title="Delete this week's run so they can play again">Reset run</button>${r.status === 'submitted' ? '<button class="sm danger" data-a="remove">Remove score</button>' : ''}` : ''}${p.locked ? '<button class="sm" data-a="unlock">Unlock</button>' : ''}<button class="sm" data-a="pin">New PIN</button><button class="sm" data-a="wipe" title="Start this player over with $10,000">Reset to $10k</button></div></td></tr>`;
 }
 function godPanel() {
   const e = ST.ev, co = ST.companies, players = ST.data?.players || [], c = co.find(x => x.ticker === e.ticker);
@@ -95,16 +95,34 @@ function godPanel() {
   <div class="xs mute" style="margin-top:8px">Players online get it at their next game day. Players who start later this week get it at the chosen day.</div></div>
   <div class="card"><h2>This week's events <span class="r">${(ST.data?.events || []).length}</span></h2>${(ST.data?.events || []).slice().reverse().map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="chip ${x.kind === 'crash' || x.magnitude < 0 ? 'r' : 'g'}">${x.unit ? (x.amount >= 0 ? '+' : '−') + (x.unit === 'usd' ? '$' : '') + Math.abs(x.amount) + (x.unit === 'usd' ? '' : '%') + (x.duration_days ? ' over ' + x.duration_days + 'd' : '') : esc(x.kind) + ' ' + (x.magnitude >= 0 ? '+' : '') + Math.round(x.magnitude * 100) + '%'}</span>${x.ticker ? `<b>${esc(x.ticker)}</b> ` : ''}<span class="dim">${x.headline ? '“' + esc(x.headline) + '”' : ''}</span><div class="xs mute">${x.player_id ? 'one player' : 'everyone'} · ${x.game_day == null ? 'asap' : 'day ' + x.game_day}</div></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
 }
+const CF = { title: 'Burn a billion', goal: 'least', start: 1000000000, prize: 1000000, days: 3, sel: {} };
+const usd = n => '$' + Number(n || 0).toLocaleString('en-US');
+function chalPanel() {
+  const ps = ST.data?.players || [], list = ST.chals || [];
+  return `<div class="card"><h2>⚡ Challenge</h2>
+  <label>Name<input id="cf-title" maxlength="80" value="${esc(CF.title)}"></label>
+  <div class="seg"><button class="${CF.goal === 'least' ? 'on' : ''}" data-goal="least">Lose the most</button><button class="${CF.goal === 'most' ? 'on' : ''}" data-goal="most">Make the most</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Starting money ($)<input id="cf-start" type="number" min="1" value="${esc(CF.start)}"></label><label>Prize ($)<input id="cf-prize" type="number" min="0" value="${esc(CF.prize)}"></label></div>
+  <label>How long<select id="cf-days">${[1, 2, 3, 5, 7, 10, 14, 24].map(d => `<option value="${d}" ${CF.days === d ? 'selected' : ''}>${d} game day${d === 1 ? '' : 's'}</option>`).join('')}</select></label>
+  <div class="xs mute" style="margin-bottom:4px">Who takes part <button class="sm" data-pickall="1" style="margin-left:6px">${ps.length && ps.every(p => CF.sel[p.id]) ? 'None' : 'All'}</button></div>
+  <div style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:var(--r);padding:6px;margin-bottom:8px">${ps.map(p => `<label style="flex-direction:row;align-items:center;gap:6px;margin:0 0 4px;color:var(--text)"><input type="checkbox" data-pick="${esc(p.id)}" ${CF.sel[p.id] ? 'checked' : ''} style="width:auto">${esc(p.nickname)}</label>`).join('') || '<div class="xs mute">No players yet.</div>'}</div>
+  <div class="xs mute" style="margin-bottom:8px">Everyone picked plays the same market starting with ${usd(CF.start)}. ${CF.goal === 'least' ? 'Lowest' : 'Highest'} finishing balance wins ${usd(CF.prize)} when you end it.</div>
+  <button class="gold" style="width:100%" id="cf-go">Send the challenge</button></div>
+  <div class="card"><h2>Challenges <span class="r">${list.length}</span></h2>${list.map(c => `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+    <div style="display:flex;gap:6px;align-items:center"><b>${esc(c.title)}</b><span class="chip ${c.status === 'open' ? 'g' : ''}">${esc(c.status)}</span><span class="spacer"></span>${c.status === 'open' ? `<button class="sm gold" data-cclose="${esc(c.id)}">End & pay prize</button>` : ''}</div>
+    <div class="xs mute">${c.goal === 'least' ? 'Lose the most' : 'Make the most'} · start ${usd(c.startCash / 100)} · prize ${usd(c.prize / 100)} · ${c.days}d${c.winner ? ' · winner <b class="gold">' + esc(c.winner) + '</b>' : ''}</div>
+    ${c.rows.map((r, i) => `<div class="xs" style="display:flex;justify-content:space-between"><span>${r.nw != null ? '#' + (i + 1) + ' ' : ''}${esc(r.nickname)}</span><span class="mono">${r.nw != null ? money(r.nw) + ' ' + pctS(r.ret) : esc(r.state)}</span></div>`).join('')}</div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
+}
 function mainView() {
   const d = ST.data; if (!d) return '<header><div class="mk">⚡</div><h1>MARKET GOD</h1></header><div class="empty">Loading…</div>';
   const ps = d.players.slice().sort((a, b) => (b.run?.nw ?? -1) - (a.run?.nw ?? -1));
   const sub = d.players.filter(p => p.run?.status === 'submitted').length;
   return `<header><div class="mk">⚡</div><h1>MARKET GOD</h1><span class="mute xs">MARKET MAYHEM admin</span><span class="spacer"></span>
-    <input id="week" value="${esc(ST.week)}" style="width:110px" aria-label="Week"><button id="refresh">Refresh</button><button id="logout" class="sm">Lock</button></header>
+    <input id="week" value="${esc(ST.week)}" style="width:110px" aria-label="Week"><button id="wipe-all" class="sm danger" title="Every player starts over with $10,000">Reset everyone to $10k</button><button id="refresh">Refresh</button><button id="logout" class="sm">Lock</button></header>
   <main><div><div class="card"><h2>Players <span class="r">${d.players.length} players · ${sub} scores this week</span></h2>
     <div class="tw"><table><thead><tr><th>Player</th><th>Money</th><th>This week</th><th>Their market (secret)</th><th>Actions</th></tr></thead><tbody>${ps.map(playerRow).join('') || '<tr><td colspan="5" class="empty">No players yet. Share the game link.</td></tr>'}</tbody></table></div>
     <div class="xs mute" style="margin-top:8px">Vol scales how wildly their stocks move (0.25× calm to 4× chaos). Luck tilts the stocks they own: +1 drifts them up, −1 drags them down. Changes reach a player at their next game day. "Rigged" marks runs you touched; only you can see it.</div></div></div>
-  <div>${godPanel()}</div></main>`;
+  <div>${godPanel()}${chalPanel()}</div></main>`;
 }
 const SHARK = { vinnie: "Vinnie 'The Calculator'", tony: "Big Tony's Easy Money", knuckles: 'Knuckles & Sons Capital', broker: 'Pemberton Prime Brokerage (margin)' };
 const CONTACT = { dave: 'Dodgy Dave', clerk: 'The Night Clerk', banker: 'Silvia Marrow', director: 'The Director' };
@@ -151,12 +169,17 @@ document.addEventListener('input', e => {
   const k = e.target.dataset.k, tr = e.target.closest('tr');
   if (k === 'vol' && tr) tr.querySelector('[data-o=vol]').textContent = volLabel(2 ** Number(e.target.value));
   if (k === 'luck' && tr) { const v = Number(e.target.value); tr.querySelector('[data-o=luck]').textContent = (v > 0 ? '+' : '') + v.toFixed(2); }
+  if (e.target.id === 'cf-title') CF.title = e.target.value;
+  if (e.target.id === 'cf-start') CF.start = Number(e.target.value);
+  if (e.target.id === 'cf-prize') CF.prize = Number(e.target.value);
   if (e.target.id === 'ev-mag') { ST.ev.mag = Number(e.target.value); syncEv(); }
   if (e.target.id === 'ev-amt') { ST.ev.amt = e.target.value; const b = $('ev-go'); if (b) b.disabled = !(ST.ev.ticker && Number(ST.ev.amt) > 0); const im = document.querySelector('.impact'); if (im) im.textContent = (ST.ev.dir > 0 ? '+' : '−') + (ST.ev.unit === 'usd' ? '$' : '') + (ST.ev.amt || 0) + (ST.ev.unit === 'usd' ? '' : '%'); }
   if (['ev-who', 'ev-text'].includes(e.target.id)) { ST.ev[e.target.id === 'ev-who' ? 'who' : 'text'] = e.target.value; const pv = document.querySelector('.preview .b'); if (pv) pv.textContent = `${ST.ev.who || 'A Very Important Person'}: "${ST.ev.text || '…'}"`; }
 });
 function syncEv() { const box = document.querySelector('.impact'); if (!box) return; const e = ST.ev, isA = e.kind === 'announce', v = isA ? e.mag : (e.kind === 'boom' ? 1 : -1) * Math.abs(e.mag); box.textContent = (v >= 0 ? '+' : '−') + Math.abs(v) + '%'; box.className = 'impact ' + (v >= 0 ? 'up' : 'down'); }
 document.addEventListener('change', e => {
+  if (e.target.dataset.pick) { CF.sel[e.target.dataset.pick] = e.target.checked; return; }
+  if (e.target.id === 'cf-days') { CF.days = Number(e.target.value); return; }
   if (e.target.id === 'ev-ticker') { ST.ev.ticker = e.target.value; render(); }
   if (e.target.id === 'ev-target') ST.ev.target = e.target.value;
   if (e.target.id === 'ev-dur') { ST.ev.dur = Number(e.target.value); render(); }
@@ -168,7 +191,12 @@ document.addEventListener('click', e => {
   if (e.target.id === 'insp-back' || e.target.id === 'insp-x') { ST.inspect = null; return render(); }
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'refresh') return load();
+  if (b.id === 'wipe-all') { if (!confirm('Reset EVERY player to a fresh $10,000 career? Their current games are replaced. Ranked runs and duels are not touched.')) return; return act('reset', {}, 'Everyone goes back to $10,000 next time they play'); }
   if (b.id === 'logout') { KEY = ''; sessionStorage.removeItem('mm.admin'); return render(); }
+  if (b.dataset.goal) { CF.goal = b.dataset.goal; return render(); }
+  if (b.dataset.pickall) { const ps = ST.data?.players || [], on = !ps.every(p => CF.sel[p.id]); ps.forEach(p => { CF.sel[p.id] = on; }); return render(); }
+  if (b.id === 'cf-go') { const ids = Object.keys(CF.sel).filter(k => CF.sel[k]); if (!ids.length) return toast('Pick at least one player', 1); return act('challenge_create', { title: CF.title, goal: CF.goal, startCash: CF.start, prize: CF.prize, days: CF.days, playerIds: ids }, `Challenge sent to ${ids.length} player${ids.length === 1 ? '' : 's'}`); }
+  if (b.dataset.cclose) { if (!confirm('End this challenge now and pay the prize to whoever is on top?')) return; return api('challenge_close', { id: b.dataset.cclose }).then(r => { toast(r.winner ? `${r.winner} wins ${usd(r.prize / 100)}` : 'Ended. Nobody finished, so no prize.'); load(); }, e2 => toast(e2.message, 1)); }
   if (b.dataset.dir) { ST.ev.dir = Number(b.dataset.dir); return render(); }
   if (b.dataset.unit) { ST.ev.unit = b.dataset.unit; ST.ev.amt = b.dataset.unit === 'usd' ? 10 : 25; return render(); }
   if (b.dataset.ev) { ST.ev.kind = b.dataset.ev; if (b.dataset.ev !== 'announce') ST.ev.mag = Math.max(1, Math.abs(ST.ev.mag)); return render(); }
@@ -177,7 +205,8 @@ document.addEventListener('click', e => {
   if (a === 'inspect') { return api('inspect', { playerId }).then(d => { ST.inspect = d; render(); }, e2 => toast(e2.message, 1)); }
   if (a === 'mods') return act('mods', { playerId, vol: 2 ** Number(tr.querySelector('[data-k=vol]').value), luck: Number(tr.querySelector('[data-k=luck]').value) }, `Updated ${name}'s market`);
   if (a === 'normal') return act('mods', { playerId, vol: 1, luck: 0 }, `${name} is back to a fair market`);
-  if (a === 'cash') { const v = Number(tr.querySelector('[data-k=cash]').value); if (!v) return toast('Enter an amount', 1); return act('cash', { playerId, amount: v }, `${v > 0 ? 'Sent' : 'Fined'} ${name} $${Math.abs(v).toLocaleString('en-US')}`); }
+  if (a === 'wipe') { if (!confirm(`Reset ${name} to a fresh $10,000 career? Their current game is replaced.`)) return; return act('reset', { playerIds: [playerId] }, `${name} goes back to $10,000 next time they play`); }
+  if (a === 'cash') { const v = Number(tr.querySelector('[data-k=cash]').value); if (!v) return toast('Enter an amount', 1); return act('cash', { playerId, amount: v, note: tr.querySelector('[data-k=note]').value }, `${v > 0 ? 'Sent' : 'Fined'} ${name} $${Math.abs(v).toLocaleString('en-US')}`); }
   if (a === 'ban') { const reason = prompt(`Ban ${name}? Reason (shown to them):`, 'Cheating'); if (reason == null) return; return act('ban', { playerId, banned: true, reason }, `${name} banned`); }
   if (a === 'unban') return act('ban', { playerId, banned: false }, `${name} unbanned`);
   if (a === 'unlock') return act('unlock', { playerId }, `${name} unlocked`);

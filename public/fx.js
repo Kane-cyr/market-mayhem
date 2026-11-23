@@ -53,6 +53,7 @@
   .mmfx-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:0 5vw;opacity:0;animation:mmfx-in .6s 4.05s forwards}
   .mmfx-msg small{font:800 clamp(14px,2.6vw,22px) system-ui;letter-spacing:.2em;color:#1a1740}
   .mmfx-msg b{font:900 clamp(46px,13vw,130px)/1 system-ui;letter-spacing:-.02em}
+  .mmfx-note{font:600 italic clamp(16px,2.6vw,24px)/1.35 Georgia,serif;color:#1a1740;max-width:760px}.mmfx-note span{display:block;font:700 13px system-ui;letter-spacing:.14em;margin-top:6px;color:#55507a;font-style:normal}
   .mmfx-msg .up{color:#0a9a5a}.mmfx-msg .dn{color:#d3212f}
   .mmfx-msg .mmfx-go{background:#1a1740;color:#fff;margin-top:20px;opacity:0;animation:mmfx-in .4s 5.1s forwards}
   @media (prefers-reduced-motion:reduce){.mmfx-flash,.mmfx-mic,.mmfx-pres-head,.mmfx-banner i{animation:none}}
@@ -124,7 +125,7 @@
   };
 
   const sceneCash = d => {
-    const gift = d.dollars > 0;
+    const gift = d.reset || d.dollars > 0;
     const root = h('div', { id: 'mmfx', class: 'cash', role: 'dialog', 'aria-label': 'Market God' });
     seed = 11;
     for (let i = 0; i < 18; i++) { const size = 160 + rnd() * 240; root.append(h('div', { class: 'mmfx-cloud', style: `width:${size}px;height:${size * .62}px;left:${(rnd() * 110 - 8).toFixed(0)}%;--rise:${(40 + rnd() * 70).toFixed(0)}vh;animation-delay:${(rnd() * .9).toFixed(2)}s` })); }
@@ -146,7 +147,8 @@
     bolt.append(svg('polyline', { points: '650,230 600,380 650,400 560,560 620,580 500,780 540,800 470,1000', fill: 'none', stroke: '#fffbd0', 'stroke-width': 18, 'stroke-linejoin': 'round', style: 'filter:drop-shadow(0 0 18px #fff6a8) drop-shadow(0 0 40px #9fd8ff)' }));
     root.append(bolt, h('div', { class: 'mmfx-white' }));
     const btn = h('button', { class: 'mmfx-go' }, 'Continue');
-    root.append(h('div', { class: 'mmfx-msg' }, h('small', {}, gift ? 'THE MARKET GOD HAS GIVEN YOU' : 'THE MARKET GOD HAS TAKEN'), h('b', { class: gift ? 'up' : 'dn' }, (gift ? '+' : '−') + money(d.dollars)), btn));
+    root.append(d.reset ? h('div', { class: 'mmfx-msg' }, h('small', {}, 'THE MARKET GOD HAS RESET THE MARKET'), h('b', { class: 'up', style: 'font-size:clamp(34px,8vw,80px)' }, 'Back to $10,000'), h('div', { class: 'mmfx-note' }, 'Everyone starts again. Make it count.'), btn)
+      : h('div', { class: 'mmfx-msg' }, h('small', {}, gift ? 'THE MARKET GOD HAS GIVEN YOU' : 'THE MARKET GOD HAS TAKEN'), h('b', { class: gift ? 'up' : 'dn' }, (gift ? '+' : '−') + money(d.dollars)), d.note ? h('div', { class: 'mmfx-note' }, '“' + d.note + '”', h('span', {}, '— The Market God')) : null, btn));
     return { root, btn };
   };
 
@@ -169,6 +171,7 @@
 
   window.mmFx = {
     president: d => push('president', { label: String(d.label || '').slice(0, 60), who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
-    cash: dollars => { if (Number.isFinite(dollars) && Math.abs(dollars) >= 1) push('cash', { dollars }); },
+    cash: (dollars, note) => { if (Number.isFinite(dollars) && Math.abs(dollars) >= 1) push('cash', { dollars, note: note ? String(note).slice(0, 200) : '' }); },
+    reset: () => push('cash', { dollars: 0, reset: true }),
   };
 })();

@@ -15,11 +15,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
 
 function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
-function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents) }; }
+function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...(c.note ? { note: String(c.note).slice(0, 200) } : {}) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
 
-const DUEL = 'duel-';
+const DUEL = 'duel-', CHAL = 'chal-';
 const FORFEIT_MS = 3 * 864e5; // if one player finishes and the other has not after 3 days, the finisher wins
 // One duel as seen by player `me`. The result is worked out from the two verified runs.
 async function duelView(db, d, me) {
@@ -35,6 +35,16 @@ async function duelView(db, d, me) {
   else if (b === 'void' && a !== 'void') { view.winner = 'me'; view.result = 'forfeit'; }
   else if (d.accepted_at && Date.now() - new Date(d.accepted_at) > FORFEIT_MS && (a === 'done') !== (b === 'done')) { view.winner = a === 'done' ? 'me' : 'opp'; view.result = 'forfeit'; if (b === 'done') Object.assign(view.opp, { ret: theirs.ret, nw: Number(theirs.final_nw) }); }
   return view;
+}
+// A Market God challenge as seen by a player (or by the admin when me is null): everyone's progress, best first.
+async function challengeView(db, c, me) {
+  const [ids, runs, players] = await Promise.all([db.challengePlayers(c.id), db.runs(CHAL + c.id), db.players()]);
+  const pm = new Map(players.map(x => [x.id, x])), rm = new Map(runs.filter(r => r.status !== 'removed').map(r => [r.player_id, r]));
+  const rows = ids.map(id => { const r = rm.get(id); return { id, nickname: pm.get(id)?.nickname || '?', me: id === me, state: !r ? 'waiting' : r.status === 'submitted' ? 'done' : r.status === 'rejected' ? 'void' : 'playing', nw: r?.status === 'submitted' ? Number(r.final_nw) : null, ret: r?.status === 'submitted' ? r.ret : null }; });
+  const sign = c.goal === 'least' ? 1 : -1;
+  rows.sort((a, b) => (a.nw == null) - (b.nw == null) || sign * ((a.nw ?? 0) - (b.nw ?? 0)));
+  return { id: c.id, title: c.title, goal: c.goal, startCash: Number(c.start_cash), prize: Number(c.prize), days: c.days, status: c.status, created: c.created_at,
+    winner: c.winner ? pm.get(c.winner)?.nickname || '?' : null, rows: rows.map(({ id, ...r }) => (me === null ? { id, ...r } : r)) };
 }
 async function handleDuel(db, p, op, body) {
   if (op === 'duels') { const ds = await db.duelsFor(p.id); const views = await Promise.all(ds.slice(0, 30).map(d => duelView(db, d, p.id))); return ok({ duels: views }); }
@@ -133,13 +143,29 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'claim') { // career mode: money and events from the Market God reach a signed-in player without a ranked run
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(weekId())]);
     const fresh = forPlayer(evs, p.id).filter(e => Date.now() - new Date(e.created_at) < 15 * 6e4);
-    if (!cash.length && !fresh.length) return ok({ none: true });
+    const reset = p.reset_ver || 0;
+    if (!cash.length && !fresh.length) return ok({ none: true, reset });
     await db.claimCash(cash.map(c => c.id));
-    return ok({ cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) });
+    return ok({ reset, cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) });
   }
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
+  if (op === 'challenges') { const cs = await db.challengesFor(p.id); return ok({ challenges: await Promise.all(cs.map(c => challengeView(db, c, p.id))) }); }
+  if (op === 'start' && body.challenge) {
+    const c = await db.challenge(String(body.challenge));
+    if (!c || c.status !== 'open' || !(await db.challengePlayers(c.id)).includes(p.id)) return bad(404, 'That challenge is not open to you.');
+    const week = CHAL + c.id, existing = await db.runFor(p.id, week);
+    if (existing) {
+      if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week, days: c.days, startCash: Number(c.start_cash) });
+      return ok({ finished: true, runId: existing.id, status: existing.status, nw: existing.final_nw && Number(existing.final_nw), ret: existing.ret, reason: existing.reject_reason, week });
+    }
+    // the challenge bankroll arrives as a Market God grant on top of the normal $10,000, so the replay check still works
+    const extra = Number(c.start_cash) - START_CASH, payload = { ver: 0, vol: 1, luck: 0, cash: extra ? [{ id: 'chal', amount: extra, note: c.title }] : [], events: [] };
+    let run; try { run = await db.createRun({ player_id: p.id, week, start_payload: payload, issued: [] }); }
+    catch (e) { if (e.code === '23505') return bad(409, 'You already started this challenge.'); throw e; }
+    return ok({ runId: run.id, week, cfg: enc(payload), challenge: c.id, days: c.days, startCash: Number(c.start_cash) });
+  }
   if (op === 'start' && body.duel) {
     const d = await db.duel(String(body.duel));
     if (!d || ![d.challenger, d.opponent].includes(p.id) || d.status !== 'active') return bad(404, 'That duel is not open.');
@@ -174,7 +200,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (run.status !== 'active') return ok({ none: true, status: run.status });
     const t = Number(body.t) || 0, patch = {};
     if (t < run.max_tick) patch.suspect = true; else patch.max_tick = t; // going backwards in time means a reloaded save
-    if (run.week.startsWith(DUEL)) { await db.updateRun(run.id, patch); return ok({ none: true }); }
+    if (run.week.startsWith(DUEL) || run.week.startsWith(CHAL)) { await db.updateRun(run.id, patch); return ok({ none: true }); }
     const last = (run.issued || []).at(-1) || run.start_payload;
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(run.week)]);
     const seen = deliveredIds(run), fresh = forPlayer(evs, p.id).filter(e => !seen.has(e.id));
@@ -197,16 +223,20 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!Array.isArray(first) || first[1] !== 'god' || first[0] !== startTick(run.week) || !same(first[2], run.start_payload)) return reject('Run did not start with the issued settings.');
     const pool = [...(run.issued || [])];
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
-    let S; try { S = replayRun({ week: run.week }, actions); } catch (e) { return reject('Replay failed: ' + e.message); }
+    const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
+    if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
+    let S; try { S = replayRun({ week: run.week, days: chal?.days }, actions); } catch (e) { return reject('Replay failed: ' + e.message); }
     const nw = netWorth(S).total;
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
     const pays = [run.start_payload, ...(run.issued || [])], evs = await db.events(run.week);
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
-    await db.updateRun(run.id, { status: 'submitted', final_nw: nw, ret: nw / START_CASH - 1, rigged, submitted_at: new Date().toISOString(), actions });
+    const base = chal ? Number(chal.start_cash) : START_CASH;
+    await db.updateRun(run.id, { status: 'submitted', final_nw: nw, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));
-    const out = { ok: true, nw, ret: nw / START_CASH - 1, rank: board.findIndex(r => r.id === run.id) + 1, of: board.length };
+    const out = { ok: true, nw, ret: nw / base - 1, rank: board.findIndex(r => r.id === run.id) + 1, of: board.length };
     if (run.week.startsWith(DUEL)) { const d = await db.duel(run.week.slice(DUEL.length)); if (d) out.duel = await duelView(db, d, p.id); }
+    if (chal) out.challenge = await challengeView(db, chal, p.id);
     return ok(out);
   }
   return bad(404, 'Unknown request.');
@@ -252,6 +282,32 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
           run: r && { id: r.id, status: r.status, nw: r.final_nw && Number(r.final_nw), ret: r.ret, rigged: r.rigged, suspect: r.suspect, reason: r.reject_reason, started: r.started_at, submitted: r.submitted_at } }; }),
           events: evs, cash: cash.slice(0, 50) });
       }
+      case 'reset': { // everyone (or the chosen players) starts a fresh career with $10,000
+        const all = await db.players(), want = Array.isArray(body.playerIds) && body.playerIds.length ? new Set(body.playerIds.map(String)) : null;
+        const targets = all.filter(x => !want || want.has(x.id));
+        await Promise.all(targets.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1 })));
+        return ok({ reset: targets.length });
+      }
+      case 'challenge_create': {
+        const title = String(body.title || '').trim().slice(0, 80), goal = body.goal === 'least' ? 'least' : 'most';
+        const startCash = Math.round(Number(body.startCash) * 100), prize = Math.round(Number(body.prize || 0) * 100), days = Math.round(Number(body.days));
+        if (!title) return bad(400, 'Give the challenge a name.');
+        if (!Number.isFinite(startCash) || startCash < 100 || startCash > 1e15) return bad(400, 'Starting money must be between $1 and $10 trillion.');
+        if (!Number.isFinite(prize) || prize < 0 || prize > 1e15) return bad(400, 'Prize must be between $0 and $10 trillion.');
+        if (!(days >= 1 && days <= 24)) return bad(400, 'Length must be 1 to 24 game days.');
+        const all = await db.players(), ids = [...new Set((Array.isArray(body.playerIds) ? body.playerIds : []).map(String))].filter(id => all.some(x => x.id === id));
+        if (!ids.length) return bad(400, 'Pick at least one player.');
+        const c = await db.createChallenge({ title, goal, start_cash: startCash, prize, days }, ids);
+        return ok({ challenge: await challengeView(db, c, null) });
+      }
+      case 'challenges': { const cs = await db.challengesAll(); return ok({ challenges: await Promise.all(cs.slice(0, 30).map(c => challengeView(db, c, null))) }); }
+      case 'challenge_close': { // ends the challenge and pays the prize to whoever is top among finished runs
+        const c = await db.challenge(String(body.id || '')); if (!c) return bad(404, 'Challenge not found.'); if (c.status !== 'open') return bad(409, 'Already closed.');
+        const v = await challengeView(db, c, null), top = v.rows.find(r => r.state === 'done');
+        if (top && c.prize > 0) await db.addCash(top.id, Number(c.prize), `Prize for winning "${c.title}"`);
+        await db.updateChallenge(c.id, { status: 'closed', winner: top?.id || null, closed_at: new Date().toISOString() });
+        return ok({ winner: top?.nickname || null, prize: top ? Number(c.prize) : 0 });
+      }
       case 'inspect': {
         const x = await player(); const [runs, duels] = await Promise.all([db.runs(), db.duelsFor(x.id)]);
         const names = new Map((await db.players()).map(q => [q.id, q.nickname]));
@@ -265,7 +321,7 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       case 'ban': { const x = await player(); return ok({ player: await db.updatePlayer(x.id, { banned: !!body.banned, ban_reason: body.banned ? String(body.reason || '').slice(0, 200) : null }) }); }
       case 'unlock': { const x = await player(); return ok({ player: await db.updatePlayer(x.id, { failed_logins: 0, locked_until: null }) }); }
       case 'resetPin': { const x = await player(); if (!PIN_RE.test(String(body.pin))) return bad(400, 'PIN must be 4 digits.'); await db.updatePlayer(x.id, { pin_hash: hashPin(String(body.pin)), failed_logins: 0, locked_until: null }); return ok({ ok: true }); }
-      case 'cash': { const x = await player(); const amt = Math.round(Number(body.amount) * 100); if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1e12) return bad(400, 'Enter an amount in dollars, e.g. 5000 or -2500.'); return ok({ cash: await db.addCash(x.id, amt, String(body.note || '').slice(0, 200)) }); }
+      case 'cash': { const x = await player(); const amt = Math.round(Number(body.amount) * 100); if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1e12) return bad(400, 'Enter an amount in dollars, e.g. 5000 or -2500.'); return ok({ cash: await db.addCash(x.id, amt, String(body.note || '').trim().slice(0, 200)) }); }
       case 'event': {
         const kind = String(body.kind); if (!['crash', 'boom', 'announce'].includes(kind)) return bad(400, 'Unknown event.');
         const pump = kind === 'announce' && (body.unit === 'pct' || body.unit === 'usd'); // a stock pump: an amount, in dollars or percent, spread over some game days

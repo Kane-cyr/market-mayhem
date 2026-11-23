@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(); let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(); let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -28,6 +28,12 @@ export function memoryDb() {
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
+    async createChallenge(c, ids) { const row = { id: randomUUID(), status: 'open', winner: null, created_at: now(), closed_at: null, ...c }; chals.set(row.id, row); chalP.set(row.id, [...ids]); return clone(row); },
+    async challenge(id) { return clone(chals.get(id) || null); },
+    async challengePlayers(id) { return [...(chalP.get(id) || [])]; },
+    async challengesFor(pid) { return [...chals.values()].filter(c => c.status === 'open' && (chalP.get(c.id) || []).includes(pid)).map(clone); },
+    async challengesAll() { return [...chals.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(clone); },
+    async updateChallenge(id, patch) { const c = chals.get(id); if (!c) return null; Object.assign(c, patch); return clone(c); },
     async updateDuel(id, patch) { const d = duels.get(id); if (!d) return null; Object.assign(d, patch); return clone(d); },
     async cashForRun(runId) { return cash.filter(c => c.run_id === runId).map(clone); },
     async markCash(ids, runId) { for (const c of cash) if (ids.includes(c.id)) c.run_id = runId; },
@@ -64,6 +70,12 @@ export async function supabaseDb(url, key) {
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
+    createChallenge: async (c, ids) => { const row = await one(sb.from('challenges').insert(c).select().single()); await one(sb.from('challenge_players').insert(ids.map(player_id => ({ challenge_id: row.id, player_id })))); return row; },
+    challenge: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('challenges').select('*').eq('id', id).maybeSingle()) : null,
+    challengePlayers: async id => (await one(sb.from('challenge_players').select('player_id').eq('challenge_id', id))).map(r => r.player_id),
+    challengesFor: async pid => { const ids = (await one(sb.from('challenge_players').select('challenge_id').eq('player_id', pid))).map(r => r.challenge_id); return ids.length ? one(sb.from('challenges').select('*').in('id', ids).eq('status', 'open').order('created_at', { ascending: false })) : []; },
+    challengesAll: () => one(sb.from('challenges').select('*').order('created_at', { ascending: false }).limit(30)),
+    updateChallenge: (id, patch) => one(sb.from('challenges').update(patch).eq('id', id).select().maybeSingle()),
     updateDuel: (id, patch) => one(sb.from('duels').update(patch).eq('id', id).select().maybeSingle()),
     cashForRun: runId => one(sb.from('cash_adjustments').select('*').eq('run_id', runId)),
     markCash: (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: runId }).in('id', ids)) : null,

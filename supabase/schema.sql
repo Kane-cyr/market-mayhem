@@ -19,7 +19,8 @@ create table if not exists players (
   locked_until timestamptz,
   avatar jsonb not null default '{}'::jsonb,        -- look: skin, hair, shirt colour, eyewear
   profile jsonb not null default '{}'::jsonb,       -- career snapshot (net worth, level, toys) and recent trades
-  profile_at timestamptz
+  profile_at timestamptz,
+  reset_ver integer not null default 0              -- bumped by the Market God's reset; the game starts over at $10,000
 );
 
 create table if not exists runs (
@@ -89,6 +90,25 @@ create table if not exists duels (
 create index if not exists duels_challenger on duels(challenger);
 create index if not exists duels_opponent on duels(opponent);
 
+create table if not exists challenges (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 1 and 80),
+  goal text not null check (goal in ('most','least')),
+  start_cash bigint not null check (start_cash > 0),
+  prize bigint not null default 0 check (prize >= 0),
+  days integer not null check (days between 1 and 24),
+  status text not null default 'open' check (status in ('open','closed')),
+  winner uuid references players(id) on delete set null,
+  created_at timestamptz not null default now(),
+  closed_at timestamptz
+);
+create table if not exists challenge_players (
+  challenge_id uuid not null references challenges(id) on delete cascade,
+  player_id uuid not null references players(id) on delete cascade,
+  primary key (challenge_id, player_id)
+);
+alter table challenges enable row level security;
+alter table challenge_players enable row level security;
 alter table duels enable row level security;
 alter table follows enable row level security;
 alter table players enable row level security;
@@ -97,5 +117,5 @@ alter table cash_adjustments enable row level security;
 alter table global_events enable row level security;
 
 -- the server uses the service_role key, which needs explicit table privileges on a new Supabase project
-grant select, insert, update, delete on public.players, public.runs, public.cash_adjustments, public.global_events, public.follows, public.duels to service_role;
+grant select, insert, update, delete on public.players, public.runs, public.cash_adjustments, public.global_events, public.follows, public.duels, public.challenges, public.challenge_players to service_role;
 grant usage, select on all sequences in schema public to service_role;
