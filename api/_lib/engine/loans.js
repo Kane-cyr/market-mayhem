@@ -6,7 +6,7 @@ import { TPD } from './calendar.js';
 import { netWorth, positions, sell } from './trading.js';
 import { award } from './progress.js';
 import { setBrokerDebt } from './shorts.js';
-import { seizeItems } from './lifestyle.js';
+import { seizeItems, ITEMS } from './lifestyle.js';
 
 export const SHARKS = [
   { id: 'vinnie', name: "Vinnie 'The Calculator'", who: 'Vinnie', rate: 0.015, days: 15, mult: 0.5, min: 250000, blurb: 'Slow and steady, like a glacier made of interest.' },
@@ -71,8 +71,10 @@ export function repay(S, loanId, amount) {
 /** they take everything they can: on the spot you hand over cash first; a raid takes toys first */
 function collect(S, l, onSpot) {
   const L = S.player.loans, p = S.player, sh = SHARKS.find(x => x.id === l.shark), scenes = (p.scenes ||= []);
-  let took = 0;
+  let took = 0; const lost = [];
   const fromCash = () => { const c = Math.min(p.cash, l.owed); p.cash -= c; l.owed -= c; took += c; };
+  // you did not pay: the collateral is forfeited outright, and they still collect every cent on top
+  if (!onSpot && p.life) for (const o of [...p.life.owned]) if (o.pledged === l.id) { lost.push(ITEMS.find(i => i.id === o.id)?.name || o.id); p.life.owned = p.life.owned.filter(x => x !== o); }
   if (onSpot) fromCash();
   const toys = seizeItems(S, l.owed, l.id), t2 = Math.min(toys.raised, Math.max(0, l.owed)); l.owed -= t2; took += t2;
   if (!onSpot) fromCash();
@@ -86,9 +88,9 @@ function collect(S, l, onSpot) {
   if (left > 0) L.banUntil = S.t + BAN_DAYS * TPD;
   L.history.push({ t: S.t, shark: l.shark, outcome: left > 0 ? 'written off' : onSpot ? 'paid on the spot' : 'repossessed', took, left });
   p.log.push({ type: 'repossessed', t: S.t, total: took, src: l.shark }); if (p.log.length > 600) p.log.shift();
-  p.notifications.push({ t: S.t, kind: 'warn', text: `${sh.who} took ${money(took)}${toys.items.length ? `, your ${toys.items.slice(0, 3).join(', ')}` : ''}${sold.length ? ` and sold your ${sold.slice(0, 3).join(', ')}` : ''}.${left > 0 ? ' Every shark in town has blacklisted you.' : ''}` });
-  if (!onSpot) scenes.push({ kind: 'collect2', t: S.t, shark: sh.id, took, sold, left, toys: toys.items });
-  return { took, left, toys: toys.items, sold };
+  p.notifications.push({ t: S.t, kind: 'warn', text: `${sh.who} ${lost.length ? `kept your ${lost.join(', ')} and ` : ''}took ${money(took)}${toys.items.length ? `, your ${toys.items.slice(0, 3).join(', ')}` : ''}${sold.length ? ` and sold your ${sold.slice(0, 3).join(', ')}` : ''}.${left > 0 ? ' Every shark in town has blacklisted you.' : ''}` });
+  if (!onSpot) scenes.push({ kind: 'collect2', t: S.t, shark: sh.id, took, sold, left, toys: [...lost, ...toys.items] });
+  return { took, left, toys: [...lost, ...toys.items], sold };
 }
 
 /** the shark is in your office: hand it over now (cash, then collateral, toys and shares) */

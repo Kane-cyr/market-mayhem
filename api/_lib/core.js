@@ -151,6 +151,15 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
+  if (op === 'crowd') { // everyone's career trades push prices for everyone else: report yours, collect theirs
+    const fl = body.flows && typeof body.flows === 'object' ? Object.entries(body.flows).slice(0, 60) : [];
+    const rows = fl.filter(([t, v]) => /^[A-Z]{2,5}$/.test(t) && Number.isFinite(Number(v)) && Number(v) !== 0).map(([t, v]) => ({ player_id: p.id, ticker: t, frac: Math.max(-1, Math.min(1, Number(v))) }));
+    if (rows.length) await db.addFlows(rows);
+    const now = new Date(), since = new Date(Math.max(Date.parse(body.since) || 0, now - 15 * 6e4));
+    const sum = {}; for (const f of await db.flowsSince(since.toISOString(), p.id)) sum[f.ticker] = (sum[f.ticker] || 0) + Number(f.frac);
+    if (Math.random() < 0.02) db.pruneFlows(new Date(now - 864e5).toISOString()).catch(() => {});
+    return ok({ now: now.toISOString(), crowd: sum });
+  }
   if (op === 'inbox') { // conversations, newest first, with unread counts
     const ms = await db.messagesFor(p.id), conv = new Map();
     for (const m of ms) { const other = m.sender === p.id ? m.recipient : m.sender; const c = conv.get(other) || { other, last: m, unread: 0 }; if (m.recipient === p.id && !m.read_at) c.unread++; conv.set(other, c); }

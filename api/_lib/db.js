@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = []; let mid = 0; let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = []; let mid = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -28,6 +28,9 @@ export function memoryDb() {
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
+    async addFlows(rows) { for (const r of rows) flows.push({ ...r, created_at: now() }); },
+    async flowsSince(t, notPid) { return flows.filter(f => f.created_at > t && f.player_id !== notPid).map(clone); },
+    async pruneFlows(t) { for (let i = flows.length - 1; i >= 0; i--) if (flows[i].created_at < t) flows.splice(i, 1); },
     async addMessage(a, b, body) { msgs.push({ id: ++mid, sender: a, recipient: b, body, created_at: now(), read_at: null }); },
     async messagesFor(pid) { return msgs.filter(m => m.sender === pid || m.recipient === pid).slice().reverse().slice(0, 500).map(clone); },
     async messagesBetween(a, b) { return msgs.filter(m => (m.sender === a && m.recipient === b) || (m.sender === b && m.recipient === a)).slice(-100).map(clone); },
@@ -75,6 +78,9 @@ export async function supabaseDb(url, key) {
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
+    addFlows: rows => one(sb.from('flows').insert(rows)),
+    flowsSince: (t, notPid) => one(sb.from('flows').select('ticker,frac').gt('created_at', t).neq('player_id', notPid).limit(5000)),
+    pruneFlows: t => one(sb.from('flows').delete().lt('created_at', t)),
     addMessage: (a, b, body) => one(sb.from('messages').insert({ sender: a, recipient: b, body })),
     messagesFor: pid => one(sb.from('messages').select('*').or(`sender.eq.${pid},recipient.eq.${pid}`).order('created_at', { ascending: false }).limit(500)),
     messagesBetween: async (a, b) => (await one(sb.from('messages').select('*').or(`and(sender.eq.${a},recipient.eq.${b}),and(sender.eq.${b},recipient.eq.${a})`).order('created_at', { ascending: false }).limit(100))).reverse(),
