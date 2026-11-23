@@ -80,6 +80,33 @@
     window.__mm.save(); window.__mm.render(); return price;
   }
 
+  // ----- announcements: owners can move the market, and what you did decides which way and how hard -----
+  const ANN = [
+    { id: 'partner', label: 'Sign a partnership with', target: true, stance: 1, pct: 0.08, days: 2, head: (me, t) => `${me} signs a major partnership with ${t}` },
+    { id: 'invest', label: 'Take a big stake in', target: true, stance: 1, pct: 0.06, days: 2, head: (me, t) => `${me} buys a large stake in ${t}` },
+    { id: 'supply', label: 'Sign a huge supply deal with', target: true, stance: 1, pct: 0.05, days: 3, head: (me, t) => `${me} orders billions in product from ${t}` },
+    { id: 'sue', label: 'Sue', target: true, stance: -1, pct: 0.08, days: 2, head: (me, t) => `${me} files a blockbuster lawsuit against ${t}` },
+    { id: 'pricewar', label: 'Start a price war with', target: true, stance: -1, pct: 0.06, days: 3, margin: -0.02, head: (me, t) => `${me} slashes prices to crush ${t}` },
+    { id: 'poach', label: 'Poach the top team of', target: true, stance: -1, pct: 0.05, days: 1, head: (me, t) => `${me} poaches ${t}'s leadership team` },
+    { id: 'record', label: 'Report record profits (lifts the whole sector)', target: false, stance: 1, pct: 0.03, days: 1, head: me => `${me} posts record profits; rivals rally on the news` },
+    { id: 'layoffs', label: 'Announce mass layoffs (boosts your margins, spooks the sector)', target: false, stance: -1, pct: 0.02, days: 1, margin: 0.03, head: me => `${me} announces mass layoffs; the sector wobbles` },
+  ];
+  async function announce(i, kind, target, extra) {
+    const G = S(), p = G.player, o = p.empire?.[i], a = ANN.find(x => x.id === kind); if (!o || !a || !career()) return { error: 'Pick what you are announcing.' };
+    if (o.lastAnn != null && G.t - o.lastAnn < 18) return { error: `${o.name} made an announcement recently. Wait ${Math.ceil((18 - (G.t - o.lastAnn)) / 6)} more game day(s).` };
+    const tgt = a.target ? G.companies[target] : null; if (a.target && (!tgt || tgt.status !== 'active')) return { error: 'Pick a listed company.' };
+    const hit = a.target ? [tgt] : G.order.map(t => G.companies[t]).filter(c => c?.status === 'active' && c.sector === o.sector);
+    for (const c of hit) G.impulses.push({ t: c.ticker, rem: Math.log(1 + a.stance * a.pct), left: a.days * 6, start: G.t });
+    if (a.margin) o.margin = Math.max(-1, Math.min(0.6, o.margin + a.margin));
+    o.lastAnn = G.t;
+    const head = a.head(o.name, tgt ? tgt.name : o.sector);
+    window.__mm.news({ cat: 'Statement', sev: 5, status: 'confirmed', tickers: hit.slice(0, 4).map(c => c.ticker), source: o.name, head, body: (extra ? `“${extra}” ` : '') + `Owner of ${o.name} made the call personally.`, impact: { co: {} } });
+    window.__mm.save(); window.__mm.render();
+    const main = tgt || hit.slice().sort((x, y) => y.price * y.shares - x.price * x.shares)[0];
+    if (main) { try { await window.__mm.push(); await fetch('/api/game?op=announce', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (localStorage.getItem('mm.token') || '') }, body: JSON.stringify({ company: o.tk, ticker: main.ticker, stance: a.stance, mag: a.pct / 10, body: `📢 ${head}${extra ? ' · ' + extra : ''}` }) }); } catch { /* offline: still moves your own market */ } }
+    return { ok: true, head };
+  }
+
   // ----- the boardroom scene -----
   const css = h('style', {}, `
   #mme-back{position:fixed;inset:0;background:rgba(5,8,14,.75);z-index:9000;display:none;align-items:flex-start;justify-content:center;padding:5vh 12px;overflow:auto}
@@ -122,7 +149,7 @@
   back.append(box); document.body.append(back);
   back.addEventListener('mousedown', e => { if (e.target === back) close(); });
   const close = () => back.classList.remove('on');
-  let pick = '', prem = 0.2, err = '';
+  let pick = '', prem = 0.2, err = '', ann = null;
 
   function draw() {
     const G = S(); if (!G) return;
@@ -131,8 +158,19 @@
     if (!career()) return box.replaceChildren(head, h('p', {}, 'Company buyouts are for your career game. Head back to your career from the Menu.'));
     const mine = list.length ? h('div', { class: 'card' }, h('b', {}, 'Your companies'), ...list.map((o, i) => h('div', { class: 'row', style: 'margin-top:8px' },
       h('div', {}, h('div', {}, h('b', {}, o.name), ' ', h('span', { class: 'mut' }, o.tk)), h('div', { class: 'mut' }, `Paid ${usd(o.paid)} · worth about ${usd(coValue(o))} · makes ${o.margin >= 0 ? '' : '−'}${usd(Math.abs(o.rev * o.margin / 360 * 100))} a day · earned ${usd(o.earned || 0)} so far`)),
-      h('button', { onclick: () => { if (confirm(`Sell ${o.name}? Buyers pay roughly what it is worth, give or take 15%.`)) { const got = sell(i); err = got ? `Sold for ${usd(got)}.` : ''; draw(); } } }, 'Sell')))) : null;
-    if (!ok) return box.replaceChildren(head, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. It pays you its profits every game day.'), mine);
+      h('div', { style: 'display:flex;gap:6px' }, h('button', { onclick: () => { ann = ann === i ? null : i; draw(); } }, '📢 Announce'), h('button', { onclick: () => { if (confirm(`Sell ${o.name}? Buyers pay roughly what it is worth, give or take 15%.`)) { const got = sell(i); err = got ? `Sold for ${usd(got)}.` : ''; draw(); } } }, 'Sell'))))) : null;
+    if (mine && ann != null && list[ann]) {
+      const o = list[ann], cos = G.order.map(t => G.companies[t]).filter(c => c?.status === 'active').sort((a, b) => a.ticker.localeCompare(b.ticker));
+      const kind = h('select', {}, ...ANN.map(a => h('option', { value: a.id }, a.label)));
+      const tgt = h('select', {}, ...cos.map(c => h('option', { value: c.ticker }, `${c.ticker} · ${c.name}`)));
+      const say = h('input', { placeholder: 'What you say (optional)', maxlength: '120', style: 'width:100%;box-sizing:border-box;background:var(--bg,#0f121a);color:inherit;border:1px solid var(--line2,#2f3545);border-radius:8px;padding:8px' });
+      const effect = h('div', { class: 'mut' });
+      const show = () => { const a = ANN.find(x => x.id === kind.value); tgt.style.display = a.target ? '' : 'none'; effect.textContent = `${a.stance > 0 ? 'Pushes' : 'Knocks'} ${a.target ? 'that stock' : 'every listed ' + o.sector + ' stock'} ${a.stance > 0 ? 'up' : 'down'} about ${Math.round(a.pct * 100)}% over ${a.days} game day${a.days === 1 ? '' : 's'}${a.margin ? `, and ${a.margin > 0 ? 'raises' : 'cuts'} your own margin` : ''}. Other players feel it too.`; };
+      kind.onchange = show; show();
+      mine.append(h('div', { style: 'margin-top:10px;border-top:1px solid var(--line,#232836);padding-top:10px;display:flex;flex-direction:column;gap:6px' }, h('b', {}, `📢 Announcement from ${o.name}`), kind, tgt, say, effect,
+        h('div', { style: 'display:flex;justify-content:flex-end' }, h('button', { class: 'p', onclick: async () => { const r = await announce(ann, kind.value, tgt.value, say.value.trim()); err = r.error || `Announced: ${r.head}`; if (r.ok) ann = null; draw(); } }, 'Make the announcement'))));
+    }
+    if (!ok) return box.replaceChildren(head, err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err' }, err) : null, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. It pays you its profits every game day.'), mine);
     const cos = G.order.map(t => G.companies[t]).filter(c => c?.status === 'active').sort((a, b) => value(a) - value(b));
     if (!pick || !G.companies[pick] || G.companies[pick].status !== 'active') pick = cos[0]?.ticker || '';
     const c = G.companies[pick], v = c ? value(c) : 0, amt = Math.round(v * (1 + prem)), o = c ? owner(pick) : null, t = talks()[pick];
@@ -146,12 +184,12 @@
         c ? h('div', { class: 'mut' }, `Owner: ${o.name}. Market value ${usd(v)}. Makes about ${usd(Math.abs(c.revenue * c.margin))} a year ${c.margin >= 0 ? 'in profit' : 'in losses'}.`) : null, lastAsk,
         h('div', { class: 'row', style: 'margin-top:10px' }, h('span', {}, 'Premium over market value'), premEl), slider,
         h('div', { class: 'row', style: 'margin-top:6px' }, h('span', {}, 'Your offer'), amtEl),
-        err ? h('div', { class: err.startsWith('Sold') ? 'up' : 'err', style: 'margin-top:6px' }, err) : null,
+        err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err', style: 'margin-top:6px' }, err) : null,
         h('div', { style: 'margin-top:10px;display:flex;justify-content:flex-end' }, h('button', { class: 'p', disabled: c ? null : '', onclick: () => {
           const r = offer(pick, prem); if (r.error) { err = r.error; return draw(); } err = ''; close(); boardroom(pick, r); } }, 'Make the offer'))),
       h('div', { class: 'mut' }, 'Shareholders (including you) are paid out at your offer price and the stock stops trading. Your companies count toward your net worth.'));
   }
   function open() { back.classList.add('on'); err = ''; draw(); }
-  window.mmEmpire = { open, daily, offer, sell };
+  window.mmEmpire = { open, daily, offer, sell, announce };
   document.addEventListener('click', e => { const t = e.target.closest('[data-act="empire"]'); if (t) { e.preventDefault(); open(); } });
 })();

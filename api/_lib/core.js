@@ -82,6 +82,15 @@ async function handleSocial(db, p, op, body) {
     const stance = tk ? Math.max(-1, Math.min(1, Math.round(Number(body.stance) || 0))) : 0;
     const post = await db.addPost({ author: p.id, body: b, ticker: tk, stance }); await socialFlow(db, p.id, post, 'post'); await beef(db, p, post, b); return ok({ ok: true });
   }
+  if (op === 'announce') { // a company owner's announcement: a post that hits the named stock harder than a normal post
+    const own = String(body.company || '').toUpperCase(), tk = String(body.ticker || '').toUpperCase(), stance = Math.sign(Number(body.stance) || 0), mag = Math.max(0.002, Math.min(0.02, Number(body.mag) || 0.01));
+    if (!(p.profile?.live?.empire || []).includes(own)) return bad(403, 'You can only make announcements for companies you own.');
+    if (!/^[A-Z]{2,5}$/.test(tk) || !stance) return bad(400, 'Pick a stock and which way it moves.');
+    const b = text(body.body); if (!b) return bad(400, 'Write the announcement.');
+    if ((await db.recentPosts(p.id, 60)) >= 5) return bad(429, 'Slow down.');
+    await db.addPost({ author: p.id, body: b, ticker: tk, stance }); await db.addFlows([{ player_id: p.id, ticker: tk, frac: stance * mag }]);
+    return ok({ ok: true });
+  }
   const post = await db.post(Number(body.id)); if (!post) return bad(404, 'That post is gone.');
   if (op === 'post_edit') {
     if (post.author !== p.id) return bad(403, 'You can only edit your own posts.');
@@ -209,7 +218,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
-  if (['sfeed', 'post', 'post_edit', 'post_delete', 'like', 'repost', 'comment', 'comments'].includes(op)) return handleSocial(db, p, op, body);
+  if (['sfeed', 'announce', 'post', 'post_edit', 'post_delete', 'like', 'repost', 'comment', 'comments'].includes(op)) return handleSocial(db, p, op, body);
   if (op === 'crowd') { // everyone's career trades push prices for everyone else: report yours, collect theirs
     const fl = body.flows && typeof body.flows === 'object' ? Object.entries(body.flows).slice(0, 60) : [];
     const rows = fl.filter(([t, v]) => /^[A-Z]{2,5}$/.test(t) && Number.isFinite(Number(v)) && Number(v) !== 0).map(([t, v]) => ({ player_id: p.id, ticker: t, frac: Math.max(-1, Math.min(1, Number(v))) }));

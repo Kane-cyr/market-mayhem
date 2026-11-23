@@ -42,14 +42,17 @@
   #mms .bull{background:#08998133;color:#22ab94}#mms .bear{background:#f2364533;color:#f7525f}
   #mms .rp{border:1px solid var(--line2,#2f3545);border-radius:10px;padding:8px 10px;margin:4px 0 6px}
   #mms .cm{margin-top:6px;padding:8px;background:var(--bg2,#131722);border-radius:8px}#mms .cm div{margin:2px 0}
-  #mms .err{color:#f7525f;font-size:13px}.mmsf svg{display:block;border-radius:50%;background:#3a4155}`));
+  #mms .err{color:#f7525f;font-size:13px}#mms .up{color:#22ab94}#mms .down{color:#f7525f}
+  #mms .pick{border:1px solid var(--line2,#2f3545);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}#mms .pl{max-height:220px;overflow:auto}
+  #mms .pi{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer}#mms .pi:hover{background:var(--panel2,#1f2430)}
+  #mms-live{margin-bottom:14px}#mms-live .li{display:flex;gap:8px;padding:8px 0;border-top:1px solid var(--line,#232836)}#mms-live .li:first-of-type{border-top:0}.mmsf svg{display:block;border-radius:50%;background:#3a4155}`));
   const back = el('div', { id: 'mms-back' }), box = el('div', { id: 'mms', role: 'dialog', 'aria-label': 'Trader feed' });
   back.append(box); document.body.append(back);
   back.addEventListener('mousedown', e => { if (e.target === back) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && back.classList.contains('on')) close(); }, true);
   box.addEventListener('keydown', e => e.stopPropagation()); // typing here must not trigger the game's hotkeys
 
-  let posts = [], err = '', stance = 0, openCm = {}, editing = null, draft = '', tick = '';
+  let posts = [], err = '', stance = 0, openCm = {}, editing = null, draft = '', tick = '', picker = '', pq = '';
   const close = () => back.classList.remove('on');
   async function load() { try { posts = (await api('sfeed')).posts; err = ''; } catch (e) { err = e.message; } draw(); }
   async function act(op, body) { try { await api(op, body); err = ''; } catch (e) { err = e.message; } await load(); }
@@ -87,15 +90,61 @@
     ta.addEventListener('input', () => { draft = ta.value; const m = ta.value.match(/\$([A-Z]{2,5})\b/); if (m && !tick) { tick = m[1]; } });
     const tk = el('input', { placeholder: 'Stock (optional)', maxlength: '5', style: 'width:110px', value: tick }); tk.addEventListener('input', () => { tick = tk.value.toUpperCase().replace(/[^A-Z]/g, ''); });
     const seg = (v, label) => el('button', { class: stance === v ? 'on' : '', onclick: () => { stance = v; draw(); } }, label);
+    const insert = txt => { draft = (draft && !/\s$/.test(draft) ? draft + ' ' : draft) + txt + ' '; picker = ''; pq = ''; draw(); const t = box.querySelector('.cmp textarea'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } };
+    const G = window.__mm?.G?.S;
+    let pick = null;
+    if (picker) {
+      const q = el('input', { placeholder: picker === 'stock' ? 'Search stocks by ticker or name' : 'Search influencers', value: pq });
+      q.addEventListener('input', () => { pq = q.value; const keep = q.selectionStart; draw(); const n = box.querySelector('.pick input'); if (n) { n.focus(); n.setSelectionRange(keep, keep); } });
+      const needle = pq.trim().toLowerCase();
+      let items = [];
+      if (picker === 'stock' && G) items = G.order.map(t => G.companies[t]).filter(c => c && (!needle || c.ticker.toLowerCase().includes(needle) || c.name.toLowerCase().includes(needle))).slice(0, 12)
+        .map(c => { const ch = c.prevClose ? c.price / c.prevClose - 1 : 0; return el('div', { class: 'pi', onclick: () => { tick = c.ticker; insert('$' + c.ticker); } }, el('b', {}, c.ticker), el('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, ' ' + c.name), el('span', { class: 'mut' }, '$' + c.price.toFixed(2)), el('span', { class: ch >= 0 ? 'up' : 'down', style: 'width:58px;text-align:right' }, (ch >= 0 ? '+' : '') + (ch * 100).toFixed(1) + '%')); });
+      if (picker === 'infl' && G) items = (G.influencers || []).filter(i => !needle || i.handle.toLowerCase().includes(needle) || i.name.toLowerCase().includes(needle)).slice().sort((a, b) => b.followers - a.followers)
+        .map(i => { const r = Math.round(i.rep ?? 50), rec = i.hits != null && (i.hits + (i.misses || 0)) ? Math.round(i.hits / (i.hits + i.misses) * 100) : null;
+          return el('div', { class: 'pi', onclick: () => insert('@' + i.handle) }, el('div', { style: 'flex:1;min-width:0' }, el('b', {}, '@' + i.handle), el('span', { class: 'mut' }, ' ' + i.name), el('div', { class: 'mut' }, (i.personality || '').slice(0, 70))),
+            el('div', { style: 'text-align:right;white-space:nowrap' }, el('div', { class: r >= 70 ? 'up' : r < 45 ? 'down' : '' }, `Rep ${r}`), el('div', { class: 'mut' }, `${Math.round(i.followers / 1000)}k followers${rec != null ? ` · right ${rec}%` : ''}`))); });
+      pick = el('div', { class: 'pick' }, q, el('div', { class: 'pl' }, ...(items.length ? items : [el('div', { class: 'mut', style: 'padding:6px' }, 'No matches.')])));
+    }
     box.replaceChildren(
       el('div', { class: 'hd' }, el('b', {}, '📣 Trader feed'), el('button', { onclick: load, title: 'Refresh' }, '↻'), el('button', { onclick: close, 'aria-label': 'Close' }, '×')),
-      el('div', { class: 'cmp' }, ta, el('div', { class: 'row' }, tk, seg(1, '🚀 Bullish'), seg(-1, '🔻 Bearish'), seg(0, 'Just talking'), el('span', { style: 'flex:1' }),
+      el('div', { class: 'cmp' }, ta, el('div', { class: 'row' }, el('button', { class: picker === 'stock' ? 'on' : '', onclick: () => { picker = picker === 'stock' ? '' : 'stock'; pq = ''; draw(); } }, '$ Mention a stock'), el('button', { class: picker === 'infl' ? 'on' : '', onclick: () => { picker = picker === 'infl' ? '' : 'infl'; pq = ''; draw(); } }, '@ Tag an influencer')), pick,
+        el('div', { class: 'row' }, tk, seg(1, '🚀 Bullish'), seg(-1, '🔻 Bearish'), seg(0, 'Just talking'), el('span', { style: 'flex:1' }),
         el('button', { class: 'p', onclick: async () => { const b = draft.trim(); if (!b) return; try { await api('post', { body: b, ticker: tick, stance }); draft = ''; tick = ''; stance = 0; err = ''; } catch (e) { err = e.message; } load(); } }, 'Post')),
         el('div', { class: 'mut' }, 'A bullish or bearish post about a stock pushes its price in other players\' markets. Every like and repost pushes harder.'),
         err ? el('div', { class: 'err' }, err) : null),
       ...(posts.length ? posts.map(postEl) : [el('div', { class: 'cmp mut' }, 'Nobody has posted yet. Be first.')]));
   }
   function open() { back.classList.add('on'); draw(); load(); }
+  // the same posts, live inside the game's Social page for everyone
+  function liveCard() {
+    const card = el('div', { id: 'mms-live', class: 'card' },
+      el('h3', {}, '📣 Live from real traders ', el('span', { class: 'r' }, el('a', { href: '#', onclick: e => { e.preventDefault(); open(); } }, 'Open the feed'))));
+    const list = posts.slice(0, 8);
+    if (!token()) card.append(el('div', { class: 'empty' }, 'Sign in to see what real players are saying.'));
+    else if (!list.length) card.append(el('div', { class: 'empty' }, 'No posts yet. Be the first: open the feed and post.'));
+    for (const x of list) {
+      const t = x.repost || x;
+      card.append(el('div', { class: 'li' }, face(t.avatar, 32), el('div', { style: 'flex:1;min-width:0' },
+        el('div', { class: 'sm' }, el('b', {}, x.nickname), x.repost ? el('span', { class: 'mute' }, ' reposted ' + x.repost.nickname) : null, t.ticker && t.stance ? el('span', { class: 'chip ' + (t.stance > 0 ? 'g' : 'r'), style: 'margin-left:6px' }, (t.stance > 0 ? 'Bullish $' : 'Bearish $') + t.ticker) : null, el('span', { class: 'mute xs' }, ' · ' + ago(x.at))),
+        el('div', {}, bodyText(t.body)),
+        el('div', { class: 'xs mute', style: 'margin-top:3px;display:flex;gap:12px' },
+          el('a', { href: '#', onclick: e => { e.preventDefault(); act('like', { id: t.id, on: !t.liked }).then(paint); } }, `${t.liked ? '♥' : '♡'} ${t.likes}`),
+          el('a', { href: '#', onclick: e => { e.preventDefault(); if (!t.mine) act('repost', { id: t.id }).then(paint); } }, `🔁 ${t.reposts}`),
+          el('a', { href: '#', onclick: e => { e.preventDefault(); openCm[t.id] = { list: null }; open(); api('comments', { id: t.id }).then(r => { openCm[t.id] = { list: r.comments }; draw(); }); } }, `💬 ${t.comments}`)))));
+    }
+    return card;
+  }
+  function paint() {
+    const main = document.getElementById('main'); if (!main || !/^#social/.test(location.hash)) return;
+    const old = main.querySelector('#mms-live'), fresh = liveCard();
+    if (old) old.replaceWith(fresh); else { const h1 = main.querySelector('h1'); const anchor = h1?.nextElementSibling?.tagName === 'P' ? h1.nextElementSibling : h1; if (anchor) anchor.after(fresh); else main.prepend(fresh); }
+  }
+  let lastFetch = 0;
+  async function refreshLive() { if (!token() || !/^#social/.test(location.hash)) return; if (Date.now() - lastFetch > 15000) { lastFetch = Date.now(); try { posts = (await api('sfeed')).posts; } catch { /* offline */ } } paint(); }
+  new MutationObserver(() => { const main = document.getElementById('main'); if (main && /^#social/.test(location.hash) && !main.querySelector('#mms-live')) paint(); }).observe(document.body, { childList: true, subtree: true });
+  addEventListener('hashchange', () => { lastFetch = 0; refreshLive(); });
+  setInterval(refreshLive, 20000); setTimeout(refreshLive, 1500);
   window.mmSocial = { open };
   document.addEventListener('click', e => { const t = e.target.closest('[data-act="feed"]'); if (t) { e.preventDefault(); open(); } });
   setInterval(() => { if (back.classList.contains('on') && document.visibilityState === 'visible' && editing == null && !document.activeElement?.closest?.('#mms')) load(); }, 30000);
