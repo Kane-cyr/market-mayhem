@@ -46,7 +46,8 @@
   const back = el('div', { id: 'mms-back' }), box = el('div', { id: 'mms', role: 'dialog', 'aria-label': 'Trader feed' });
   back.append(box); document.body.append(back);
   back.addEventListener('mousedown', e => { if (e.target === back) close(); });
-  document.addEventListener('keydown', e => { if (back.classList.contains('on') && e.target.closest?.('#mms')) e.stopPropagation(); if (e.key === 'Escape' && back.classList.contains('on')) close(); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && back.classList.contains('on')) close(); }, true);
+  box.addEventListener('keydown', e => e.stopPropagation()); // typing here must not trigger the game's hotkeys
 
   let posts = [], err = '', stance = 0, openCm = {}, editing = null, draft = '', tick = '';
   const close = () => back.classList.remove('on');
@@ -75,14 +76,14 @@
       const inp = el('input', { placeholder: 'Write a comment…', maxlength: '280' });
       const send = () => { const b = inp.value.trim(); if (!b) return; act('comment', { id: target.id, body: b }).then(async () => { openCm[target.id] = { list: (await api('comments', { id: target.id })).comments }; draw(); }); };
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-      main.append(el('div', { class: 'cm' }, ...(cm.list == null ? [el('div', { class: 'mut' }, 'Loading…')] : cm.list.length ? cm.list.map(c => el('div', {}, el('b', {}, c.nickname + ' '), c.body, el('span', { class: 'mut' }, ' · ' + ago(c.at)))) : [el('div', { class: 'mut' }, 'No comments yet.')]),
+      main.append(el('div', { class: 'cm' }, ...(cm.list == null ? [el('div', { class: 'mut' }, 'Loading…')] : cm.list.length ? cm.list.map(c => el('div', {}, el('b', { style: c.npc ? 'color:#f7c948' : '' }, c.nickname + (c.npc ? ' ✓' : '') + ' '), c.body, el('span', { class: 'mut' }, ' · ' + ago(c.at)))) : [el('div', { class: 'mut' }, 'No comments yet.')]),
         el('div', { class: 'row', style: 'margin-top:6px' }, el('div', { style: 'flex:1' }, inp), el('button', { class: 'p', onclick: send }, 'Reply'))));
     }
     return el('div', { class: 'post' }, face(x.avatar, 40), main);
   }
   function draw() {
     if (!token()) return box.replaceChildren(el('div', { class: 'hd' }, el('b', {}, '📣 Trader feed'), el('button', { onclick: close }, '×')), el('div', { class: 'cmp' }, 'Sign in from the Menu to see and write posts.'));
-    const ta = el('textarea', { rows: '3', maxlength: '280', placeholder: 'What are you buying? Tag a stock like $WOOF…' }); ta.value = draft;
+    const ta = el('textarea', { rows: '3', maxlength: '280', placeholder: 'What are you buying? Tag a stock like $WOOF, or start beef with @MoonMathMaya…' }); ta.value = draft;
     ta.addEventListener('input', () => { draft = ta.value; const m = ta.value.match(/\$([A-Z]{2,5})\b/); if (m && !tick) { tick = m[1]; } });
     const tk = el('input', { placeholder: 'Stock (optional)', maxlength: '5', style: 'width:110px', value: tick }); tk.addEventListener('input', () => { tick = tk.value.toUpperCase().replace(/[^A-Z]/g, ''); });
     const seg = (v, label) => el('button', { class: stance === v ? 'on' : '', onclick: () => { stance = v; draw(); } }, label);

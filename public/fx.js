@@ -231,7 +231,7 @@
     root.append(bolt, h('div', { class: 'mmfx-white' }));
     const btn = h('button', { class: 'mmfx-go' }, 'Continue');
     root.append(d.reset ? h('div', { class: 'mmfx-msg' }, h('small', {}, 'THE MARKET GOD HAS RESET THE MARKET'), h('b', { class: 'up', style: 'font-size:clamp(34px,8vw,80px)' }, 'Back to $10,000'), h('div', { class: 'mmfx-note' }, 'Everyone starts again. Make it count.'), btn)
-      : h('div', { class: 'mmfx-msg' }, h('small', {}, gift ? 'THE MARKET GOD HAS GIVEN YOU' : 'THE MARKET GOD HAS TAKEN'), h('b', { class: gift ? 'up' : 'dn' }, (gift ? '+' : '−') + money(d.dollars)), d.note ? h('div', { class: 'mmfx-note' }, '“' + d.note + '”', h('span', {}, '— The Market God')) : null, btn));
+      : h('div', { class: 'mmfx-msg' }, h('small', {}, d.from ? d.from.toUpperCase() + ' SENT YOU' : gift ? 'THE MARKET GOD HAS GIVEN YOU' : 'THE MARKET GOD HAS TAKEN'), h('b', { class: gift ? 'up' : 'dn' }, (gift ? '+' : '−') + money(d.dollars)), d.note ? h('div', { class: 'mmfx-note' }, '“' + d.note + '”', h('span', {}, '— ' + (d.from || 'The Market God'))) : null, btn));
     return { root, btn };
   };
 
@@ -255,7 +255,7 @@
   window.mmFx = {
     shark: d => push('shark', d),
     president: d => push('president', { label: String(d.label || '').slice(0, 60), who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
-    cash: (dollars, note) => { if (Number.isFinite(dollars) && Math.abs(dollars) >= 1) push('cash', { dollars, note: note ? String(note).slice(0, 200) : '' }); },
+    cash: (dollars, note) => { if (!(Number.isFinite(dollars) && Math.abs(dollars) >= 1)) return; const m = /^(\S+) sent you money(?:: (.*))?$/.exec(note || ''); push('cash', m ? { dollars, from: m[1], note: m[2] || '' } : { dollars, note: note ? String(note).slice(0, 200) : '' }); },
     reset: () => push('cash', { dollars: 0, reset: true }),
   };
 })();

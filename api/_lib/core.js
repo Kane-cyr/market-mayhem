@@ -4,6 +4,7 @@ import { createWeekly, replayRun, weekId } from './engine/game.js';
 import { netWorth } from './engine/trading.js';
 import { WEEKLY_DAYS } from './engine/game.js';
 import { ITEMS } from './engine/lifestyle.js';
+import { INFLUENCERS } from './engine/data/influencers.js';
 import { LEVELS } from './engine/progress.js';
 import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, readToken, adminOk } from './auth.js';
 
@@ -50,6 +51,19 @@ async function challengeView(db, c, me) {
 // reposts they get, are fed into the crowd flow, so a viral post moves that stock in everyone else's market.
 const SOCIAL_W = { post: 0.004, like: 0.001, repost: 0.003, comment: 0.0005 };
 const TICK_RE = /\$([A-Z]{2,5})\b/;
+const BEEF = {
+  sage: ['Young one, I have held shares longer than you have held opinions.', 'Patience beats noise. You are mostly noise.', 'I will be here in ten years. Will your portfolio?'],
+  hype: ['Imagine fading me. Could not be you. Wait, it is you.', 'Ratio. Also I am up 400% this month, so.', 'Cope harder. We are going to the moon and you are not invited.'],
+  quant: ['Your argument has a sample size of one: you.', 'I ran the numbers on your take. It is negative alpha.', 'Correlation: you talking, my P/L going up.'],
+};
+const beefLine = (inf, said) => { const pool = BEEF[inf.voice] || ['Interesting take. Wrong, but interesting.', 'Who are you again?', 'Bold words from someone with your returns.', 'I will remember this when you are buying my bags.']; return pool[(said.length + inf.id.length) % pool.length]; };
+function mentions(text) { const t = text.toLowerCase(); return INFLUENCERS.filter(i => t.includes('@' + i.handle.toLowerCase()) || (i.name.length > 4 && t.includes('@' + i.name.toLowerCase().split(' ')[0]))); }
+async function beef(db, p, post, text) { // a tagged influencer replies, and their followers pile in against your call
+  for (const inf of mentions(text).slice(0, 2)) {
+    await db.addComment(post.id, null, beefLine(inf, text), `${inf.name} @${inf.handle}`);
+    if (post.ticker && post.stance) await db.addFlows([{ player_id: p.id, ticker: post.ticker, frac: -post.stance * 0.003 * Math.min(3, inf.followers / 300000) }]);
+  }
+}
 async function socialFlow(db, pid, post, kind) { if (post?.ticker && post.stance) await db.addFlows([{ player_id: pid, ticker: post.ticker, frac: post.stance * SOCIAL_W[kind] }]); }
 async function feedView(db, me, posts) {
   const ids = posts.map(x => x.id).concat(posts.map(x => x.repost_of).filter(Boolean));
@@ -66,7 +80,7 @@ async function handleSocial(db, p, op, body) {
     if ((await db.recentPosts(p.id, 60)) >= 5) return bad(429, 'Slow down. Five posts a minute is plenty.');
     const tk = (String(body.ticker || '').toUpperCase().match(/^[A-Z]{2,5}$/) || b.match(TICK_RE)?.slice(1) || [null])[0];
     const stance = tk ? Math.max(-1, Math.min(1, Math.round(Number(body.stance) || 0))) : 0;
-    const post = await db.addPost({ author: p.id, body: b, ticker: tk, stance }); await socialFlow(db, p.id, post, 'post'); return ok({ ok: true });
+    const post = await db.addPost({ author: p.id, body: b, ticker: tk, stance }); await socialFlow(db, p.id, post, 'post'); await beef(db, p, post, b); return ok({ ok: true });
   }
   const post = await db.post(Number(body.id)); if (!post) return bad(404, 'That post is gone.');
   if (op === 'post_edit') {
@@ -82,10 +96,10 @@ async function handleSocial(db, p, op, body) {
     if ((await db.recentPosts(p.id, 60)) >= 5) return bad(429, 'Slow down.');
     await db.addPost({ author: p.id, body: text(body.body) || '🔁', ticker: src.ticker, stance: src.stance, repost_of: src.id }); await socialFlow(db, p.id, src, 'repost'); return ok({ ok: true });
   }
-  if (op === 'comment') { const b = text(body.body); if (!b) return bad(400, 'Write something first.'); await db.addComment(post.id, p.id, b); await socialFlow(db, p.id, post, 'comment'); return ok({ ok: true }); }
+  if (op === 'comment') { const b = text(body.body); if (!b) return bad(400, 'Write something first.'); await db.addComment(post.id, p.id, b); await socialFlow(db, p.id, post, 'comment'); if ((await db.comments(post.id)).filter(c => c.npc).length < 6) await beef(db, p, post, b); return ok({ ok: true }); }
   if (op === 'comments') {
     const [cs, players] = await Promise.all([db.comments(post.id), db.players()]); const pm = new Map(players.map(x => [x.id, x]));
-    return ok({ comments: cs.map(c => ({ nickname: pm.get(c.author)?.nickname || '?', body: c.body, at: c.created_at, mine: c.author === p.id })) });
+    return ok({ comments: cs.map(c => ({ nickname: c.npc || pm.get(c.author)?.nickname || '?', npc: !!c.npc, body: c.body, at: c.created_at, mine: c.author === p.id })) });
   }
   return bad(404, 'Unknown request.');
 }
@@ -186,10 +200,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'claim') { // career mode: money and events from the Market God reach a signed-in player without a ranked run
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(weekId())]);
     const fresh = forPlayer(evs, p.id).filter(e => Date.now() - new Date(e.created_at) < 15 * 6e4);
-    const reset = p.reset_ver || 0;
-    if (!cash.length && !fresh.length) return ok({ none: true, reset });
+    const reset = p.reset_ver || 0, gifts = await db.claimGifts(p.id);
+    const gv = gifts.map(g => ({ id: g.id, item: g.item_id, paid: Number(g.paid), from: g.from }));
+    if (!cash.length && !fresh.length) return ok({ none: true, reset, gifts: gv });
     await db.claimCash(cash.map(c => c.id));
-    return ok({ reset, cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) });
+    return ok({ reset, gifts: gv, cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) });
   }
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
@@ -214,7 +229,26 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'thread') {
     const x = await db.playerByNick(String(body.nick || '')); if (!x) return bad(404, 'No trader by that name.');
     const ms = await db.messagesBetween(p.id, x.id); await db.markRead(x.id, p.id);
-    return ok({ nickname: x.nickname, avatar: x.avatar || {}, messages: ms.map(m => ({ mine: m.sender === p.id, body: m.body, at: m.created_at })) });
+    return ok({ nickname: x.nickname, avatar: x.avatar || {}, messages: ms.map(m => ({ mine: m.sender === p.id, body: m.body, at: m.created_at, seen: m.sender === p.id && !!m.read_at })) });
+  }
+  if (op === 'send_money') { // career cash from one player to another, checked against the sender's last snapshot
+    const x = await db.playerByNick(String(body.nick || '').trim()); if (!x || x.banned) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot pay yourself.');
+    const amt = Math.round(Number(body.amount)); if (!Number.isInteger(amt) || amt < 100) return bad(400, 'Send at least $1.');
+    const live = p.profile?.live; if (!live || live.mode !== 'career') return bad(400, 'Open your career game first, then try again.');
+    if (amt > Number(live.cash || 0)) return bad(400, 'You do not have that much cash.');
+    const note = String(body.note || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    await db.addCash(x.id, amt, `${p.nickname} sent you money${note ? ': ' + note : ''}`);
+    await db.setProfile(p.id, p.avatar || {}, { ...p.profile, live: { ...live, cash: Number(live.cash) - amt } });
+    await db.addMessage(p.id, x.id, `💸 Sent you $${(amt / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}${note ? ' · ' + note : ''}`);
+    return ok({ ok: true });
+  }
+  if (op === 'send_gift') {
+    const x = await db.playerByNick(String(body.nick || '').trim()); if (!x || x.banned) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot gift yourself.');
+    const it = ITEMS.find(i => i.id === String(body.item)); if (!it) return bad(400, 'That is not a real item.');
+    if (!(p.profile?.career?.items || []).includes(it.id)) return bad(400, 'You do not own that item.');
+    await db.addGift(p.id, x.id, it.id, Math.max(0, Math.min(Number(body.paid) || it.price, it.price * 2)));
+    await db.addMessage(p.id, x.id, `🎁 Sent you a gift: ${it.name}`);
+    return ok({ ok: true });
   }
   if (op === 'send') {
     const x = await db.playerByNick(String(body.nick || '').trim()); if (!x || x.banned) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot message yourself.');

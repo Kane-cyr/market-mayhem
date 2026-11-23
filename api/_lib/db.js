@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = []; let mid = 0, pid2 = 0, cid2 = 0; let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = [], gifts = []; let mid = 0, pid2 = 0, cid2 = 0, gid = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -36,7 +36,9 @@ export function memoryDb() {
     async deletePost(id) { for (let i = posts.length - 1; i >= 0; i--) if (posts[i].id === id || posts[i].repost_of === id) posts.splice(i, 1); },
     async recentPosts(pid, secs) { const t = new Date(Date.now() - secs * 1000).toISOString(); return posts.filter(x => x.author === pid && x.created_at > t).length; },
     async setLike(id, pid, on) { const k = id + ':' + pid, had = likes.has(k); if (on) likes.add(k); else likes.delete(k); return had !== on; },
-    async addComment(id, pid, body) { comments.push({ id: ++cid2, post_id: id, author: pid, body, created_at: now() }); },
+    async addComment(id, pid, body, npc) { comments.push({ id: ++cid2, post_id: id, author: pid, body, npc: npc || null, created_at: now() }); },
+    async addGift(a, b, item, paid) { gifts.push({ id: ++gid, sender: a, recipient: b, item_id: item, paid, claimed: false, created_at: now() }); },
+    async claimGifts(pid) { const out = []; for (const g of gifts) if (g.recipient === pid && !g.claimed) { g.claimed = true; out.push({ ...clone(g), from: players.get(g.sender)?.nickname || '?' }); } return out; },
     async comments(id) { return comments.filter(c => c.post_id === id).map(clone); },
     async postStats(ids, me) { const o = {}; for (const id of ids) o[id] = { likes: [...likes].filter(k => k.startsWith(id + ':')).length, liked: likes.has(id + ':' + me), comments: comments.filter(c => c.post_id === id).length, reposts: posts.filter(x => x.repost_of === id).length }; return o; },
     async addFlows(rows) { for (const r of rows) flows.push({ ...r, created_at: now() }); },
@@ -97,7 +99,14 @@ export async function supabaseDb(url, key) {
     deletePost: id => one(sb.from('posts').delete().eq('id', id)),
     recentPosts: async (pid, secs) => { const { count, error } = await sb.from('posts').select('*', { count: 'exact', head: true }).eq('author', pid).gt('created_at', new Date(Date.now() - secs * 1000).toISOString()); if (error) throw new Error(error.message); return count || 0; },
     setLike: async (id, pid, on) => { if (on) { const { error } = await sb.from('post_likes').insert({ post_id: id, player_id: pid }); if (error) { if (error.code === '23505') return false; throw new Error(error.message); } return true; } const d = await one(sb.from('post_likes').delete().eq('post_id', id).eq('player_id', pid).select()); return !!d?.length; },
-    addComment: (id, pid, body) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body })),
+    addComment: (id, pid, body, npc) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body, npc: npc || null })),
+    addGift: (a, b, item, paid) => one(sb.from('gifts').insert({ sender: a, recipient: b, item_id: item, paid })),
+    claimGifts: async pid => {
+      const gs = await one(sb.from('gifts').select('*').eq('recipient', pid).eq('claimed', false).limit(50)); if (!gs.length) return [];
+      await one(sb.from('gifts').update({ claimed: true }).in('id', gs.map(g => g.id)));
+      const ps = await one(sb.from('players').select('id,nickname').in('id', [...new Set(gs.map(g => g.sender))])); const pm = new Map(ps.map(x => [x.id, x.nickname]));
+      return gs.map(g => ({ ...g, from: pm.get(g.sender) || '?' }));
+    },
     comments: id => one(sb.from('post_comments').select('*').eq('post_id', id).order('created_at').limit(100)),
     postStats: async (ids, me) => {
       const o = {}; if (!ids.length) return o; for (const id of ids) o[id] = { likes: 0, liked: false, comments: 0, reposts: 0 };
