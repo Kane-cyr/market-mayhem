@@ -57,7 +57,7 @@ create table if not exists cash_adjustments (
 create table if not exists global_events (
   id bigint generated always as identity primary key,
   week text not null,
-  kind text not null check (kind in ('crash','boom','announce')),
+  kind text not null check (kind in ('crash','boom','announce','setprice')),  -- setprice: amount holds the exact share price
   magnitude double precision not null check (magnitude between -0.4000001 and 0.4000001 and abs(magnitude) >= 0.0099999),
   game_day integer check (game_day between 0 and 24),
   player_id uuid references players(id) on delete cascade,

@@ -17,6 +17,8 @@ export function memoryDb() {
     },
     async updatePlayer(id, patch) { const p = players.get(id); if (!p) return null; Object.assign(p, patch); return clone(p); },
     async players() { return [...players.values()].map(clone); },
+    async playersBrief() { return [...players.values()].map(x => ({ id: x.id, nickname: x.nickname, avatar: clone(x.avatar), banned: x.banned, last_seen: x.last_seen })); },
+    async playersCareer() { return [...players.values()].map(x => ({ id: x.id, nickname: x.nickname, avatar: clone(x.avatar), banned: x.banned, last_seen: x.last_seen, career: clone(x.profile?.career ?? null) })); },
     async run(id) { return clone(runs.get(id) || null); },
     async runFor(pid, week) { for (const r of runs.values()) if (r.player_id === pid && r.week === week && r.status !== 'removed') return clone(r); return null; },
     async createRun(r) { for (const x of runs.values()) if (x.player_id === r.player_id && x.week === r.week && x.status !== 'removed') { const e = new Error('exists'); e.code = '23505'; throw e; } const row = { id: randomUUID(), status: 'active', issued: [], final_nw: null, ret: null, rigged: false, reject_reason: null, started_at: now(), submitted_at: null, actions: null, ...clone(r) }; runs.set(row.id, row); return clone(row); },
@@ -80,6 +82,9 @@ export async function supabaseDb(url, key) {
     createPlayer: (nickname, pin_hash) => one(sb.from('players').insert({ nickname, pin_hash }).select().single()),
     updatePlayer: (id, patch) => one(sb.from('players').update(patch).eq('id', id).select().maybeSingle()),
     players: () => one(sb.from('players').select('*').order('created_at')),
+    // light versions for the polled endpoints: never drag every player's private game snapshot along
+    playersBrief: () => one(sb.from('players').select('id,nickname,avatar,banned,last_seen')),
+    playersCareer: () => one(sb.from('players').select('id,nickname,avatar,banned,last_seen,career:profile->career')),
     run: id => one(sb.from('runs').select('*').eq('id', id).maybeSingle()),
     runFor: (pid, week) => one(sb.from('runs').select('*').eq('player_id', pid).eq('week', week).neq('status', 'removed').maybeSingle()),
     createRun: r => one(sb.from('runs').insert(r).select().single()),

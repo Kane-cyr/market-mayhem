@@ -15,7 +15,7 @@ const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obf
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
 
-function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
+function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
 function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...(c.note ? { note: String(c.note).slice(0, 200) } : {}) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
@@ -39,7 +39,7 @@ async function duelView(db, d, me) {
 }
 // A Market God challenge as seen by a player (or by the admin when me is null): everyone's progress, best first.
 async function challengeView(db, c, me) {
-  const [ids, runs, players] = await Promise.all([db.challengePlayers(c.id), db.runs(CHAL + c.id), db.players()]);
+  const [ids, runs, players] = await Promise.all([db.challengePlayers(c.id), db.runs(CHAL + c.id), db.playersBrief()]);
   const pm = new Map(players.map(x => [x.id, x])), rm = new Map(runs.filter(r => r.status !== 'removed').map(r => [r.player_id, r]));
   const rows = ids.map(id => { const r = rm.get(id); return { id, nickname: pm.get(id)?.nickname || '?', me: id === me, state: !r ? 'waiting' : r.status === 'submitted' ? 'done' : r.status === 'rejected' ? 'void' : 'playing', nw: r?.status === 'submitted' ? Number(r.final_nw) : null, ret: r?.status === 'submitted' ? r.ret : null }; });
   const sign = c.goal === 'least' ? 1 : -1;
@@ -67,7 +67,7 @@ async function beef(db, p, post, text) { // a tagged influencer replies, and the
 async function socialFlow(db, pid, post, kind) { if (post?.ticker && post.stance) await db.addFlows([{ player_id: pid, ticker: post.ticker, frac: post.stance * SOCIAL_W[kind] }]); }
 async function feedView(db, me, posts) {
   const ids = posts.map(x => x.id).concat(posts.map(x => x.repost_of).filter(Boolean));
-  const [players, stats, orig] = await Promise.all([db.players(), db.postStats(ids, me), db.postsByIds(posts.map(x => x.repost_of).filter(Boolean))]);
+  const [players, stats, orig] = await Promise.all([db.playersBrief(), db.postStats(ids, me), db.postsByIds(posts.map(x => x.repost_of).filter(Boolean))]);
   const pm = new Map(players.map(x => [x.id, x])), om = new Map(orig.map(x => [x.id, x]));
   const one = x => { const a = pm.get(x.author), st = stats[x.id] || {}; return { id: x.id, nickname: a?.nickname || '?', avatar: a?.avatar || {}, mine: x.author === me, body: x.body, ticker: x.ticker, stance: x.stance, at: x.created_at, edited: !!x.edited_at, likes: st.likes || 0, liked: !!st.liked, comments: st.comments || 0, reposts: st.reposts || 0 }; };
   return posts.filter(x => pm.get(x.author) && !pm.get(x.author).banned).map(x => ({ ...one(x), repost: x.repost_of && om.get(x.repost_of) ? one(om.get(x.repost_of)) : null }));
@@ -107,7 +107,7 @@ async function handleSocial(db, p, op, body) {
   }
   if (op === 'comment') { const b = text(body.body); if (!b) return bad(400, 'Write something first.'); await db.addComment(post.id, p.id, b); await socialFlow(db, p.id, post, 'comment'); if ((await db.comments(post.id)).filter(c => c.npc).length < 6) await beef(db, p, post, b); return ok({ ok: true }); }
   if (op === 'comments') {
-    const [cs, players] = await Promise.all([db.comments(post.id), db.players()]); const pm = new Map(players.map(x => [x.id, x]));
+    const [cs, players] = await Promise.all([db.comments(post.id), db.playersBrief()]); const pm = new Map(players.map(x => [x.id, x]));
     return ok({ comments: cs.map(c => ({ nickname: c.npc || pm.get(c.author)?.nickname || '?', npc: !!c.npc, body: c.body, at: c.created_at, mine: c.author === p.id })) });
   }
   return bad(404, 'Unknown request.');
@@ -171,12 +171,12 @@ export async function handleGame(db, op, body = {}, headers = {}) {
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
   if (op === 'players') { // public: trader directory
-    const ps = (await db.players()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.profile?.career?.nw ?? null, level: x.profile?.career?.level ?? 0, flex: x.profile?.career?.flex ?? 0, seen: x.last_seen }));
+    const ps = (await db.playersCareer()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.career?.nw ?? null, level: x.career?.level ?? 0, flex: x.career?.flex ?? 0, seen: x.last_seen }));
     ps.sort((a, b) => (b.nw ?? -1) - (a.nw ?? -1)); return ok({ rows: ps.slice(0, 200) });
   }
   if (op === 'board') {
     const week = String(body.week || weekId()).slice(0, 10);
-    const [runs, players] = await Promise.all([db.runs(week), db.players()]);
+    const [runs, players] = await Promise.all([db.runs(week), db.playersBrief()]);
     const pm = new Map(players.map(p => [p.id, p]));
     const rows = runs.filter(r => r.status === 'submitted' && pm.get(r.player_id) && !pm.get(r.player_id).banned)
       .sort((a, b) => Number(b.final_nw) - Number(a.final_nw)).slice(0, 100)
@@ -238,7 +238,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'inbox') { // conversations, newest first, with unread counts
     const ms = await db.messagesFor(p.id), conv = new Map();
     for (const m of ms) { const other = m.sender === p.id ? m.recipient : m.sender; const c = conv.get(other) || { other, last: m, unread: 0 }; if (m.recipient === p.id && !m.read_at) c.unread++; conv.set(other, c); }
-    const ps = new Map((await db.players()).map(x => [x.id, x]));
+    const ps = new Map((await db.playersBrief()).map(x => [x.id, x]));
     const rows = [...conv.values()].filter(c => ps.get(c.other)).map(c => ({ nickname: ps.get(c.other).nickname, avatar: ps.get(c.other).avatar || {}, unread: c.unread, last: c.last.body.slice(0, 80), at: c.last.created_at, mine: c.last.sender === p.id }));
     return ok({ rows, unread: rows.reduce((a, r) => a + r.unread, 0) });
   }
@@ -416,7 +416,7 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
         if (!Number.isFinite(startCash) || startCash < 100 || startCash > 1e15) return bad(400, 'Starting money must be between $1 and $10 trillion.');
         if (!Number.isFinite(prize) || prize < 0 || prize > 1e15) return bad(400, 'Prize must be between $0 and $10 trillion.');
         if (!(days >= 1 && days <= 24)) return bad(400, 'Length must be 1 to 24 game days.');
-        const all = await db.players(), ids = [...new Set((Array.isArray(body.playerIds) ? body.playerIds : []).map(String))].filter(id => all.some(x => x.id === id));
+        const all = await db.playersBrief(), ids = [...new Set((Array.isArray(body.playerIds) ? body.playerIds : []).map(String))].filter(id => all.some(x => x.id === id));
         if (!ids.length) return bad(400, 'Pick at least one player.');
         const c = await db.createChallenge({ title, goal, start_cash: startCash, prize, days }, ids);
         return ok({ challenge: await challengeView(db, c, null) });
@@ -431,7 +431,7 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       }
       case 'inspect': {
         const x = await player(); const [runs, duels] = await Promise.all([db.runs(), db.duelsFor(x.id)]);
-        const names = new Map((await db.players()).map(q => [q.id, q.nickname]));
+        const names = new Map((await db.playersBrief()).map(q => [q.id, q.nickname]));
         return ok({ player: { id: x.id, nickname: x.nickname, created: x.created_at, lastSeen: x.last_seen, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck) },
           career: x.profile?.career || null, trades: x.profile?.trades || [], live: x.profile?.live || null, updated: x.profile_at,
           runs: runs.filter(r => r.player_id === x.id).map(r => ({ week: r.week, status: r.status, nw: r.final_nw && Number(r.final_nw), ret: r.ret, rigged: r.rigged, started: r.started_at })).sort((a, b) => String(b.started).localeCompare(String(a.started))).slice(0, 30),
@@ -444,7 +444,14 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       case 'resetPin': { const x = await player(); if (!PIN_RE.test(String(body.pin))) return bad(400, 'PIN must be 4 digits.'); await db.updatePlayer(x.id, { pin_hash: hashPin(String(body.pin)), failed_logins: 0, locked_until: null }); return ok({ ok: true }); }
       case 'cash': { const x = await player(); const amt = Math.round(Number(body.amount) * 100); if (!Number.isFinite(amt) || amt === 0 || Math.abs(amt) > 1e12) return bad(400, 'Enter an amount in dollars, e.g. 5000 or -2500.'); return ok({ cash: await db.addCash(x.id, amt, String(body.note || '').trim().slice(0, 200)) }); }
       case 'event': {
-        const kind = String(body.kind); if (!['crash', 'boom', 'announce'].includes(kind)) return bad(400, 'Unknown event.');
+        const kind = String(body.kind); if (!['crash', 'boom', 'announce', 'setprice'].includes(kind)) return bad(400, 'Unknown event.');
+        if (kind === 'setprice') { // fix a stock at exactly this price
+          const t = String(body.ticker || '').toUpperCase(), price = Number(body.price);
+          if (!createWeekly(week).companies[t]) return bad(400, 'Pick a company.');
+          if (!Number.isFinite(price) || price <= 0) return bad(400, 'Enter a price above $0.');
+          if (price > 1e12) return bad(400, 'The most a share can cost is $1,000,000,000,000.');
+          return ok({ event: await db.addEvent({ week, kind, magnitude: 0.12, amount: price, ticker: t, speaker: null, headline: null, game_day: body.day === '' || body.day == null ? null : clampN(body.day | 0, 0, WEEKLY_DAYS), player_id: body.playerId || null }) });
+        }
         const pump = kind === 'announce' && (body.unit === 'pct' || body.unit === 'usd'); // a stock pump: an amount, in dollars or percent, spread over some game days
         let mag = pump ? (Number(body.amount) >= 0 ? 0.12 : -0.12) : Number(body.magnitude); if (!Number.isFinite(mag)) return bad(400, 'Enter an impact.');
         mag = pump ? mag : kind === 'announce' ? clampN(mag, -0.4, 0.4) : clampN(Math.abs(mag), 0.01, 0.4); if (Math.abs(mag) < 0.01) return bad(400, 'Impact must be at least 1%.');

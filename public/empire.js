@@ -82,28 +82,39 @@
 
   // ----- announcements: owners can move the market, and what you did decides which way and how hard -----
   const ANN = [
-    { id: 'partner', label: 'Sign a partnership with', target: true, stance: 1, pct: 0.08, days: 2, head: (me, t) => `${me} signs a major partnership with ${t}` },
-    { id: 'invest', label: 'Take a big stake in', target: true, stance: 1, pct: 0.06, days: 2, head: (me, t) => `${me} buys a large stake in ${t}` },
-    { id: 'supply', label: 'Sign a huge supply deal with', target: true, stance: 1, pct: 0.05, days: 3, head: (me, t) => `${me} orders billions in product from ${t}` },
-    { id: 'sue', label: 'Sue', target: true, stance: -1, pct: 0.08, days: 2, head: (me, t) => `${me} files a blockbuster lawsuit against ${t}` },
+    { id: 'partner', label: 'Sign a partnership with (needs a stake in them)', target: true, stance: 1, pct: 0.08, days: 2, head: (me, t) => `${me} signs a major partnership with ${t}` },
+    { id: 'invest', label: 'Take a big stake in (hits harder the bigger your holding)', target: true, stance: 1, pct: 0.06, days: 2, head: (me, t) => `${me} buys a large stake in ${t}` },
+    { id: 'supply', label: 'Sign a huge supply deal with (needs a stake in them)', target: true, stance: 1, pct: 0.05, days: 3, head: (me, t) => `${me} orders billions in product from ${t}` },
+    { id: 'sue', label: 'Sue (costs 2% of your cash in legal fees)', target: true, stance: -1, pct: 0.08, days: 2, head: (me, t) => `${me} files a blockbuster lawsuit against ${t}` },
     { id: 'pricewar', label: 'Start a price war with', target: true, stance: -1, pct: 0.06, days: 3, margin: -0.02, head: (me, t) => `${me} slashes prices to crush ${t}` },
-    { id: 'poach', label: 'Poach the top team of', target: true, stance: -1, pct: 0.05, days: 1, head: (me, t) => `${me} poaches ${t}'s leadership team` },
-    { id: 'record', label: 'Report record profits (lifts the whole sector)', target: false, stance: 1, pct: 0.03, days: 1, head: me => `${me} posts record profits; rivals rally on the news` },
+    { id: 'poach', label: 'Poach the top team of (costs 2% of your cash)', target: true, stance: -1, pct: 0.05, days: 1, head: (me, t) => `${me} poaches ${t}'s leadership team` },
+    { id: 'record', label: 'Report record profits (needs a profitable company; lifts the sector)', target: false, stance: 1, pct: 0.03, days: 1, head: me => `${me} posts record profits; rivals rally on the news` },
     { id: 'layoffs', label: 'Announce mass layoffs (boosts your margins, spooks the sector)', target: false, stance: -1, pct: 0.02, days: 1, margin: 0.03, head: me => `${me} announces mass layoffs; the sector wobbles` },
   ];
   async function announce(i, kind, target, extra) {
     const G = S(), p = G.player, o = p.empire?.[i], a = ANN.find(x => x.id === kind); if (!o || !a || !career()) return { error: 'Pick what you are announcing.' };
     if (o.lastAnn != null && G.t - o.lastAnn < 18) return { error: `${o.name} made an announcement recently. Wait ${Math.ceil((18 - (G.t - o.lastAnn)) / 6)} more game day(s).` };
     const tgt = a.target ? G.companies[target] : null; if (a.target && (!tgt || tgt.status !== 'active')) return { error: 'Pick a listed company.' };
+    let pct = a.pct;
+    if (kind === 'invest' || kind === 'partner' || kind === 'supply') { // you need real skin in the game: a stake in the target
+      const held = p.holdings[target]?.shares || 0, frac = held / tgt.shares;
+      if (!held) return { error: `You cannot announce that without a real stake. Buy some ${tgt.name} shares first.` };
+      if (kind === 'invest') pct = Math.max(0.03, Math.min(0.12, frac * 4)); // the bigger the stake you actually hold, the harder it lands
+    }
+    if (kind === 'sue' || kind === 'poach') { // legal fees and headhunters cost real money
+      const fee = Math.round(Math.max(0, p.cash) * 0.02); if (!(fee > 0 || p.cash >= 0)) return { error: 'You cannot afford that.' };
+      p.cash -= fee; p.log.push({ type: 'legal', t: G.t, ticker: tgt.ticker, total: fee });
+    }
+    if (kind === 'record' && !(o.margin > 0)) return { error: `${o.name} is not making a profit, so nobody will believe record profits.` };
     const hit = a.target ? [tgt] : G.order.map(t => G.companies[t]).filter(c => c?.status === 'active' && c.sector === o.sector);
-    for (const c of hit) G.impulses.push({ t: c.ticker, rem: Math.log(1 + a.stance * a.pct), left: a.days * 6, start: G.t });
+    for (const c of hit) G.impulses.push({ t: c.ticker, rem: Math.log(1 + a.stance * pct), left: a.days * 6, start: G.t });
     if (a.margin) o.margin = Math.max(-1, Math.min(0.6, o.margin + a.margin));
     o.lastAnn = G.t;
     const head = a.head(o.name, tgt ? tgt.name : o.sector);
     window.__mm.news({ cat: 'Statement', sev: 5, status: 'confirmed', tickers: hit.slice(0, 4).map(c => c.ticker), source: o.name, head, body: (extra ? `“${extra}” ` : '') + `Owner of ${o.name} made the call personally.`, impact: { co: {} } });
     window.__mm.save(); window.__mm.render();
     const main = tgt || hit.slice().sort((x, y) => y.price * y.shares - x.price * x.shares)[0];
-    if (main) { try { await window.__mm.push(); await fetch('/api/game?op=announce', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (localStorage.getItem('mm.token') || '') }, body: JSON.stringify({ company: o.tk, ticker: main.ticker, stance: a.stance, mag: a.pct / 10, body: `📢 ${head}${extra ? ' · ' + extra : ''}` }) }); } catch { /* offline: still moves your own market */ } }
+    if (main) { try { await window.__mm.push(); await fetch('/api/game?op=announce', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (localStorage.getItem('mm.token') || '') }, body: JSON.stringify({ company: o.tk, ticker: main.ticker, stance: a.stance, mag: pct / 10, body: `📢 ${head}${extra ? ' · ' + extra : ''}` }) }); } catch { /* offline: still moves your own market */ } }
     return { ok: true, head };
   }
 

@@ -43,7 +43,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const money = c => c == null ? '—' : '$' + Math.round(c / 100).toLocaleString('en-US');
 const pctS = r => r == null ? '—' : (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%';
 const ago = d => { if (!d) return 'never'; const m = (Date.now() - new Date(d)) / 6e4; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
-let KEY = sessionStorage.getItem('mm.admin') || '', ST = { week: '', data: null, companies: [], ev: { kind: 'announce', mag: 15, ticker: '', who: 'The President', text: '', day: '', target: '', dir: 1, unit: 'pct', amt: 25, dur: 3 } };
+let KEY = sessionStorage.getItem('mm.admin') || '', ST = { week: '', data: null, companies: [], ev: { kind: 'announce', mag: 15, ticker: '', who: 'The President', text: '', day: '', target: '', dir: 1, unit: 'pct', amt: 25, dur: 3, price: '' } };
 function toast(t, bad) { const el = $('toast'); el.textContent = t; el.style.borderLeftColor = bad ? 'var(--down)' : 'var(--up)'; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 3500); }
 async function api(op, body = {}) {
   const r = await fetch('/api/admin?op=' + op, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': KEY }, body: JSON.stringify({ week: ST.week, ...body }) });
@@ -72,12 +72,29 @@ ${moneyCell}<td>${status}</td>
   <td style="min-width:180px"><div class="row2" style="margin-top:0"><input type="number" placeholder="$ e.g. 5000 / -2500" data-k="cash" aria-label="Cash amount"><button class="sm" data-a="cash">Send</button></div><input placeholder="Message from the Market God (optional)" data-k="note" maxlength="200" aria-label="Message" style="margin-top:6px;font-size:12px">
     <div class="row2">${p.banned ? '<button class="sm" data-a="unban">Unban</button>' : '<button class="sm danger" data-a="ban">Ban</button>'}${r ? `<button class="sm" data-a="reset" title="Delete this week's run so they can play again">Reset run</button>${r.status === 'submitted' ? '<button class="sm danger" data-a="remove">Remove score</button>' : ''}` : ''}${p.locked ? '<button class="sm" data-a="unlock">Unlock</button>' : ''}<button class="sm" data-a="pin">New PIN</button><button class="sm" data-a="wipe" title="Start this player over with $10,000">Reset to $10k</button></div></td></tr>`;
 }
+const KINDS = [['announce', 'Announcement'], ['boom', 'Boom'], ['crash', 'Crash'], ['setprice', 'Set price']];
+const dollars = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 });
+function setPriceCard(e, co, players) {
+  const c = co.find(x => x.ticker === e.ticker), np = Number(e.price), ok = !!e.ticker && np > 0;
+  const rel = c && ok ? (np >= c.price ? `${(np / c.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}× its starting price` : `${((1 - np / c.price) * 100).toFixed(1)}% below its starting price`) : '';
+  return `<div class="card"><h2>⚡ Market God</h2>
+  <div class="seg">${KINDS.map(([k, l]) => `<button class="${e.kind === k ? 'on' : ''}" data-ev="${k}">${l}</button>`).join('')}</div>
+  <label>Company<select id="ev-ticker"><option value="">Pick a company…</option>${co.map(x => `<option value="${esc(x.ticker)}" ${x.ticker === e.ticker ? 'selected' : ''}>${esc(x.ticker)} · ${esc(x.name)}</option>`).join('')}</select></label>
+  <label>New share price ($), no limit<input type="number" id="ev-price" min="0" step="any" value="${esc(e.price)}" placeholder="e.g. 5000"></label>
+  <div class="xs mute" id="sp-note" style="margin:-4px 0 8px">${c ? `${esc(c.ticker)} opened the week at ${dollars(c.price)}${rel ? ' · ' + rel : ''}.` : 'Pick a company, then type the exact price you want.'}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Who sees it<select id="ev-target"><option value="">Everyone</option>${players.map(p => `<option value="${esc(p.id)}" ${e.target === p.id ? 'selected' : ''}>Only ${esc(p.nickname)}</option>`).join('')}</select></label>
+  <label>When<select id="ev-day"><option value="">As soon as possible</option>${Array.from({ length: 25 }, (_, i) => `<option value="${i}" ${String(e.day) === String(i) ? 'selected' : ''}>Game day ${i}</option>`).join('')}</select></label></div>
+  <div class="preview"><div class="t">BREAKING</div><div class="b">${c ? esc(c.name) : 'The company'} reopens at ${ok ? dollars(np) : '…'} after an unscheduled trading halt</div></div>
+  <button class="gold" style="width:100%" id="ev-price-go" ${ok ? '' : 'disabled'}>Set the price</button>
+  <div class="xs mute" style="margin-top:8px">The exchange halts the stock and reopens it at exactly this price. Anyone holding it is instantly worth more or less, and the price stays near it afterwards (it still moves day to day like any stock). The most a share can cost is $1,000,000,000,000.</div></div>${eventsCard()}`;
+}
 function godPanel() {
   const e = ST.ev, co = ST.companies, players = ST.data?.players || [], c = co.find(x => x.ticker === e.ticker);
   const isA = e.kind === 'announce', mag = isA ? e.mag : Math.abs(e.mag);
   const head = isA ? `${e.who || 'A Very Important Person'}: "${e.text || '…'}"` : e.kind === 'boom' ? 'Euphoric buying sweeps the market' : 'Mystery sell-off rips through the market';
+  if (e.kind === 'setprice') return setPriceCard(e, co, players);
   return `<div class="card"><h2>⚡ Market God</h2>
-  <div class="seg">${[['announce', 'Announcement'], ['boom', 'Boom'], ['crash', 'Crash']].map(([k, l]) => `<button class="${e.kind === k ? 'on' : ''}" data-ev="${k}">${l}</button>`).join('')}</div>
+  <div class="seg">${KINDS.map(([k, l]) => `<button class="${e.kind === k ? 'on' : ''}" data-ev="${k}">${l}</button>`).join('')}</div>
   ${isA ? `<button class="sm danger" id="ev-rug" style="width:100%;margin-bottom:8px" title="Fill in a rug pull: the developers vanish and the stock collapses 85% straight away">🧶 Rug pull preset</button>` : ''}
   ${isA ? `<label>Company<select id="ev-ticker"><option value="">Pick a company…</option>${co.map(x => `<option value="${esc(x.ticker)}" ${x.ticker === e.ticker ? 'selected' : ''}>${esc(x.ticker)} · ${esc(x.name)}</option>`).join('')}</select></label>
   <label>Who says it<input id="ev-who" maxlength="40" value="${esc(e.who)}" placeholder="The President"></label>
@@ -94,7 +111,10 @@ function godPanel() {
   <div class="preview"><div class="t">BREAKING</div><div class="b">${esc(head)}</div>${isA && e.ticker ? `<div class="xs mute" style="margin-top:4px">${esc(e.ticker)} ${e.dir > 0 ? 'rises' : 'falls'} ${e.unit === 'usd' ? '$' + esc(e.amt || 0) + ' a share' : esc(e.amt || 0) + '%'} ${Number(e.dur) ? 'over ' + e.dur + ' game day' + (Number(e.dur) === 1 ? '' : 's') : 'straight away'}</div>` : ''}</div>
   <button class="gold" style="width:100%" id="ev-go" ${isA && (!e.ticker || !(Number(e.amt) > 0)) ? 'disabled' : ''}>Unleash it</button>
   <div class="xs mute" style="margin-top:8px">Players online get it at their next game day. Players who start later this week get it at the chosen day.</div></div>
-  <div class="card"><h2>This week's events <span class="r">${(ST.data?.events || []).length}</span></h2>${(ST.data?.events || []).slice().reverse().map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="chip ${x.kind === 'crash' || x.magnitude < 0 ? 'r' : 'g'}">${x.unit ? (x.amount >= 0 ? '+' : '−') + (x.unit === 'usd' ? '$' : '') + Math.abs(x.amount) + (x.unit === 'usd' ? '' : '%') + (x.duration_days ? ' over ' + x.duration_days + 'd' : '') : esc(x.kind) + ' ' + (x.magnitude >= 0 ? '+' : '') + Math.round(x.magnitude * 100) + '%'}</span>${x.ticker ? `<b>${esc(x.ticker)}</b> ` : ''}<span class="dim">${x.headline ? '“' + esc(x.headline) + '”' : ''}</span><div class="xs mute">${x.player_id ? 'one player' : 'everyone'} · ${x.game_day == null ? 'asap' : 'day ' + x.game_day}</div></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
+  ${eventsCard()}`;
+}
+function eventsCard() {
+  return `<div class="card"><h2>This week's events <span class="r">${(ST.data?.events || []).length}</span></h2>${(ST.data?.events || []).slice().reverse().map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="chip ${x.kind === 'setprice' ? 'y' : x.kind === 'crash' || x.magnitude < 0 ? 'r' : 'g'}">${x.kind === 'setprice' ? 'price → ' + dollars(x.amount) : x.unit ? (x.amount >= 0 ? '+' : '−') + (x.unit === 'usd' ? '$' : '') + Math.abs(x.amount) + (x.unit === 'usd' ? '' : '%') + (x.duration_days ? ' over ' + x.duration_days + 'd' : '') : esc(x.kind) + ' ' + (x.magnitude >= 0 ? '+' : '') + Math.round(x.magnitude * 100) + '%'}</span>${x.ticker ? `<b>${esc(x.ticker)}</b> ` : ''}<span class="dim">${x.headline ? '“' + esc(x.headline) + '”' : ''}</span><div class="xs mute">${x.player_id ? 'one player' : 'everyone'} · ${x.game_day == null ? 'asap' : 'day ' + x.game_day}</div></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
 }
 const CF = { title: 'Burn a billion', goal: 'least', start: 1000000000, prize: 1000000, days: 3, sel: {} };
 const usd = n => '$' + Number(n || 0).toLocaleString('en-US');
@@ -174,6 +194,7 @@ document.addEventListener('input', e => {
   if (e.target.id === 'cf-start') CF.start = Number(e.target.value);
   if (e.target.id === 'cf-prize') CF.prize = Number(e.target.value);
   if (e.target.id === 'ev-mag') { ST.ev.mag = Number(e.target.value); syncEv(); }
+  if (e.target.id === 'ev-price') { ST.ev.price = e.target.value; const b = $('ev-price-go'); if (b) b.disabled = !(ST.ev.ticker && Number(ST.ev.price) > 0); const pv = document.querySelector('.preview .b'), cc = (ST.companies || []).find(x => x.ticker === ST.ev.ticker); if (pv && cc) pv.textContent = `${cc.name} reopens at ${Number(ST.ev.price) > 0 ? dollars(ST.ev.price) : '…'} after an unscheduled trading halt`; }
   if (e.target.id === 'ev-amt') { ST.ev.amt = e.target.value; const b = $('ev-go'); if (b) b.disabled = !(ST.ev.ticker && Number(ST.ev.amt) > 0); const im = document.querySelector('.impact'); if (im) im.textContent = (ST.ev.dir > 0 ? '+' : '−') + (ST.ev.unit === 'usd' ? '$' : '') + (ST.ev.amt || 0) + (ST.ev.unit === 'usd' ? '' : '%'); }
   if (['ev-who', 'ev-text'].includes(e.target.id)) { ST.ev[e.target.id === 'ev-who' ? 'who' : 'text'] = e.target.value; const pv = document.querySelector('.preview .b'); if (pv) pv.textContent = `${ST.ev.who || 'A Very Important Person'}: "${ST.ev.text || '…'}"`; }
 });
@@ -202,6 +223,7 @@ document.addEventListener('click', e => {
   if (b.dataset.unit) { ST.ev.unit = b.dataset.unit; ST.ev.amt = b.dataset.unit === 'usd' ? 10 : 25; return render(); }
   if (b.dataset.ev) { ST.ev.kind = b.dataset.ev; if (b.dataset.ev !== 'announce') ST.ev.mag = Math.max(1, Math.abs(ST.ev.mag)); return render(); }
   if (b.id === 'ev-rug') { Object.assign(ST.ev, { kind: 'announce', dir: -1, unit: 'pct', amt: 85, dur: 0, who: 'The Developers', text: 'We have decided to pursue other opportunities. Thank you for your support.' }); toast('Rug pull filled in. Pick the company, then Unleash it.'); return render(); }
+  if (b.id === 'ev-price-go') { const v = ST.ev; return act('event', { kind: 'setprice', ticker: v.ticker, price: Number(v.price), day: v.day, playerId: v.target || null }, `${v.ticker} set to ${dollars(v.price)}`).then(() => { ST.ev.price = ''; render(); }); }
   if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', isA ? { kind: 'announce', unit: v.unit, amount: v.dir * Number(v.amt), duration: v.dur, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null } : { kind: v.kind, magnitude: Math.abs(v.mag) / 100, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.dir > 0 ? '+' : '−'}${v.unit === 'usd' ? '$' : ''}${v.amt}${v.unit === 'usd' ? '' : '%'}` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
   const tr = b.closest('tr'); if (!tr) return; const playerId = tr.dataset.id, a = b.dataset.a, p = ST.data.players.find(x => x.id === playerId), name = p?.nickname;
   if (a === 'inspect') { return api('inspect', { playerId }).then(d => { ST.inspect = d; render(); }, e2 => toast(e2.message, 1)); }
