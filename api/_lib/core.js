@@ -90,7 +90,8 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '')); if (!x || x.banned) return bad(404, 'No trader by that name.');
     const [run, followers] = await Promise.all([db.runFor(x.id, weekId()), db.followerCount(x.id)]);
     const viewer = await authPlayer(db, headers); const following = viewer ? (await db.following(viewer.id)).includes(x.id) : false;
-    return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: x.profile || {}, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
+    const { live: _live, ...pub } = x.profile || {};
+    return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: pub, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
   if (op === 'players') { // public: trader directory
@@ -223,7 +224,19 @@ function cleanProfile(pr = {}, prev = {}) {
   const career = { nw: int(c.nw, -1e13, 1e13, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
   const trades = (Array.isArray(pr.trades) ? pr.trades : []).filter(t => t && TYPES.has(t.type) && TK.test(t.ticker)).slice(-30)
     .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e9), price: int(t.price, 1, 1e10), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -1e13, 1e13) }));
-  return { career, trades };
+  return { career, trades, live: cleanLive(pr.live) ?? prev?.live ?? null };
+}
+// Private snapshot of a player's game (cash, positions, loans, insider dealing) for the admin panel only.
+// The client is untrusted, so keep plain data with bounded sizes; never shown to other players.
+function cleanLive(x, depth = 0) {
+  if (depth === 0) { if (!x || typeof x !== 'object' || Array.isArray(x)) return null; const out = cleanLive(x, 1); return JSON.stringify(out).length <= 60000 ? out : null; }
+  if (x == null || typeof x === 'boolean') return x ?? null;
+  if (typeof x === 'number') return Number.isFinite(x) ? Math.max(-1e15, Math.min(1e15, x)) : null;
+  if (typeof x === 'string') return x.slice(0, 80);
+  if (depth > 4) return null;
+  if (Array.isArray(x)) return x.slice(0, 60).map(v => cleanLive(v, depth + 1));
+  if (typeof x === 'object') { const o = {}; for (const k of Object.keys(x).slice(0, 40)) if (/^[A-Za-z0-9_]{1,24}$/.test(k)) o[k] = cleanLive(x[k], depth + 1); return o; }
+  return null;
 }
 export async function handleAdmin(db, op, body = {}, headers = {}) {
   if (!adminOk(headers['x-admin-key'])) return bad(401, 'Wrong admin password.');
@@ -235,9 +248,17 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       case 'overview': {
         const [players, runs, evs, cash] = await Promise.all([db.players(), db.runs(week), db.events(week), db.cashList()]);
         const rm = new Map(runs.map(r => [r.player_id, r]));
-        return ok({ week, players: players.map(x => { const r = rm.get(x.id); return { id: x.id, nickname: x.nickname, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck), created: x.created_at, lastSeen: x.last_seen, locked: !!(x.locked_until && new Date(x.locked_until) > new Date()),
+        return ok({ week, players: players.map(x => { const r = rm.get(x.id), lv = x.profile?.live; return { id: x.id, nickname: x.nickname, money: lv ? { nw: lv.nw, cash: lv.cash, debt: (lv.loans || []).reduce((a, l) => a + (Number(l?.owed) || 0), 0), mode: lv.mode, heat: lv.insider?.heat ?? 0, at: x.profile_at } : null, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck), created: x.created_at, lastSeen: x.last_seen, locked: !!(x.locked_until && new Date(x.locked_until) > new Date()),
           run: r && { id: r.id, status: r.status, nw: r.final_nw && Number(r.final_nw), ret: r.ret, rigged: r.rigged, suspect: r.suspect, reason: r.reject_reason, started: r.started_at, submitted: r.submitted_at } }; }),
           events: evs, cash: cash.slice(0, 50) });
+      }
+      case 'inspect': {
+        const x = await player(); const [runs, duels] = await Promise.all([db.runs(), db.duelsFor(x.id)]);
+        const names = new Map((await db.players()).map(q => [q.id, q.nickname]));
+        return ok({ player: { id: x.id, nickname: x.nickname, created: x.created_at, lastSeen: x.last_seen, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck) },
+          career: x.profile?.career || null, trades: x.profile?.trades || [], live: x.profile?.live || null, updated: x.profile_at,
+          runs: runs.filter(r => r.player_id === x.id).map(r => ({ week: r.week, status: r.status, nw: r.final_nw && Number(r.final_nw), ret: r.ret, rigged: r.rigged, started: r.started_at })).sort((a, b) => String(b.started).localeCompare(String(a.started))).slice(0, 30),
+          duels: duels.slice(0, 30).map(d => ({ vs: names.get(d.challenger === x.id ? d.opponent : d.challenger) || '?', status: d.status, created: d.created_at })) });
       }
       case 'companies': { const S = createWeekly(week); return ok({ week, companies: S.order.map(t => ({ ticker: t, name: S.companies[t].name, sector: S.companies[t].sector, price: S.companies[t].price })) }); }
       case 'mods': { const x = await player(); const vol = clampN(body.vol ?? x.vol_mult, 0.25, 4), luck = clampN(body.luck ?? x.luck, -1, 1); return ok({ player: await db.updatePlayer(x.id, { vol_mult: vol, luck, mods_ver: x.mods_ver + 1 }) }); }

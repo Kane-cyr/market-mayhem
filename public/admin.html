@@ -62,8 +62,10 @@ const volLabel = v => v.toFixed(2) + '×';
 function playerRow(p) {
   const r = p.run;
   const status = r ? `<span class="chip ${r.status === 'submitted' ? 'g' : r.status === 'rejected' ? 'r' : ''}">${esc(r.status)}</span>${r.rigged ? '<span class="chip y">rigged</span>' : ''}${r.suspect ? '<span class="chip r" title="Went back in time: probably reloaded a save">suspect</span>' : ''}<div class="mono">${money(r.nw)} <span class="${r.ret >= 0 ? 'up' : 'down'}">${pctS(r.ret)}</span></div>${r.reason ? `<div class="xs down">${esc(r.reason)}</div>` : ''}` : '<span class="mute xs">not started</span>';
+  const m = p.money;
+  const moneyCell = `<td>${m ? `<div class="mono b">${money(m.nw)}</div><div class="xs mute">cash ${money(m.cash)}</div>${m.debt > 0 ? `<div class="xs down">owes sharks ${money(m.debt)}</div>` : ''}${m.heat >= 20 ? `<div class="xs gold">insider heat ${m.heat}</div>` : ''}<div class="xs mute">${esc(m.mode)} · ${ago(m.at)}</div>` : '<div class="xs mute">no data yet</div>'}<button class="sm" data-a="inspect" style="margin-top:4px">Inspect</button></td>`;
   return `<tr data-id="${esc(p.id)}"><td><div class="b">${esc(p.nickname)}</div><div class="xs mute">seen ${ago(p.lastSeen)}</div>${p.banned ? `<span class="chip r">banned</span><div class="xs down">${esc(p.reason || '')}</div>` : ''}${p.locked ? '<span class="chip y">locked out</span>' : ''}</td>
-  <td>${status}</td>
+${moneyCell}<td>${status}</td>
   <td style="min-width:230px"><div class="ctl"><span>Vol</span><input type="range" min="-2" max="2" step="0.1" value="${Math.log2(p.vol).toFixed(1)}" data-k="vol"><span class="mono" data-o="vol">${volLabel(p.vol)}</span></div>
     <div class="ctl"><span>Luck</span><input type="range" min="-1" max="1" step="0.05" value="${p.luck}" data-k="luck"><span class="mono" data-o="luck">${p.luck > 0 ? '+' : ''}${p.luck.toFixed(2)}</span></div>
     <div class="row2"><button class="sm gold" data-a="mods">Apply</button><button class="sm" data-a="normal">Reset to fair</button></div></td>
@@ -100,11 +102,49 @@ function mainView() {
   return `<header><div class="mk">⚡</div><h1>MARKET GOD</h1><span class="mute xs">MARKET MAYHEM admin</span><span class="spacer"></span>
     <input id="week" value="${esc(ST.week)}" style="width:110px" aria-label="Week"><button id="refresh">Refresh</button><button id="logout" class="sm">Lock</button></header>
   <main><div><div class="card"><h2>Players <span class="r">${d.players.length} players · ${sub} scores this week</span></h2>
-    <div class="tw"><table><thead><tr><th>Player</th><th>This week</th><th>Their market (secret)</th><th>Actions</th></tr></thead><tbody>${ps.map(playerRow).join('') || '<tr><td colspan="4" class="empty">No players yet. Share the game link.</td></tr>'}</tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Player</th><th>Money</th><th>This week</th><th>Their market (secret)</th><th>Actions</th></tr></thead><tbody>${ps.map(playerRow).join('') || '<tr><td colspan="5" class="empty">No players yet. Share the game link.</td></tr>'}</tbody></table></div>
     <div class="xs mute" style="margin-top:8px">Vol scales how wildly their stocks move (0.25× calm to 4× chaos). Luck tilts the stocks they own: +1 drifts them up, −1 drags them down. Changes reach a player at their next game day. "Rigged" marks runs you touched; only you can see it.</div></div></div>
   <div>${godPanel()}</div></main>`;
 }
-function render() { $('app').innerHTML = KEY ? mainView() : loginView(); }
+const SHARK = { vinnie: "Vinnie 'The Calculator'", tony: "Big Tony's Easy Money", knuckles: 'Knuckles & Sons Capital', broker: 'Pemberton Prime Brokerage (margin)' };
+const CONTACT = { dave: 'Dodgy Dave', clerk: 'The Night Clerk', banker: 'Silvia Marrow', director: 'The Director' };
+const px2 = c => c == null ? '—' : '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const tbl = (head, rows, empty) => rows.length ? `<div class="tw"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : `<div class="empty">${empty}</div>`;
+function inspectView(d) {
+  const L = d.live, I = L?.insider || {};
+  const sec = (t, body) => `<div class="card"><h2>${t}</h2>${body}</div>`;
+  const pos = L ? tbl(['Stock', 'Shares', 'Avg cost', 'Price', 'Value', 'P/L'], (L.holdings || []).map(h => { const v = h.sh * h.px, pl = v - h.sh * h.avg; return `<tr><td class="b">${esc(h.tk)}</td><td class="mono">${Number(h.sh).toLocaleString('en-US')}</td><td class="mono">${px2(h.avg)}</td><td class="mono">${px2(h.px)}</td><td class="mono">${money(v)}</td><td class="mono ${pl >= 0 ? 'up' : 'down'}">${money(pl)}</td></tr>`; }), 'No stocks held.') : '';
+  const shorts = L && (L.shorts || []).length ? tbl(['Short', 'Shares', 'Sold at', 'Price now', 'P/L'], L.shorts.map(h => { const pl = h.sh * (h.avg - h.px); return `<tr><td class="b">${esc(h.tk)}</td><td class="mono">${h.sh}</td><td class="mono">${px2(h.avg)}</td><td class="mono">${px2(h.px)}</td><td class="mono ${pl >= 0 ? 'up' : 'down'}">${money(pl)}</td></tr>`; }), '') : '';
+  const debt = L ? (L.loans || []).reduce((a, l) => a + l.owed, 0) : 0;
+  const loans = L ? tbl(['Lender', 'Borrowed', 'Owes now', 'Due', 'Strikes'], (L.loans || []).map(l => `<tr><td>${esc(SHARK[l.shark] || l.shark)}</td><td class="mono">${money(l.principal)}</td><td class="mono down b">${money(l.owed)}</td><td class="${l.due < 0 ? 'down b' : l.due < 2 ? 'gold' : ''}">${l.due < 0 ? 'OVERDUE ' + Math.abs(l.due) + ' days' : 'in ' + l.due + ' days'}</td><td>${l.strikes || 0}</td></tr>`), 'Owes nothing to the sharks.')
+    + ((L.loanHist || []).length ? `<div class="xs mute" style="margin-top:8px">History: ${L.loanHist.slice().reverse().map(h => `${esc(SHARK[h.shark] || h.shark)} ${esc(h.outcome)} (${esc(h.date)})`).join(' · ')}</div>` : '') + (L.sharkBan ? '<div class="xs down">Banned from borrowing right now.</div>' : '') : '';
+  const heatName = h => h < 20 ? 'Low' : h < 50 ? 'Noticed' : h < 90 ? 'High' : 'Critical';
+  const insider = L ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${I.unlocked ? '<span class="chip y">network open</span>' : '<span class="chip">not unlocked</span>'}<span class="chip ${I.heat >= 50 ? 'r' : I.heat >= 20 ? 'y' : ''}">heat ${I.heat ?? 0} · ${heatName(I.heat || 0)}</span><span class="chip">${I.met || 0} contact(s) met</span>${I.caseOpen ? '<span class="chip r">under investigation</span>' : ''}${I.suspended ? '<span class="chip r">suspended</span>' : ''}${I.banned ? '<span class="chip r">banned from network</span>' : ''}</div>
+    <div class="xs mute" style="margin:6px 0 4px">Tips bought</div>${tbl(['When', 'From', 'Tip', 'Was it true?', 'Paid'], (I.tips || []).slice().reverse().map(x => `<tr><td class="xs">${esc(x.date)}</td><td>${esc(CONTACT[x.contact] || x.contact)}</td><td><b>${esc(x.tk)}</b> ${x.dir > 0 ? '<span class="up">going up</span>' : '<span class="down">going down</span>'}</td><td>${x.real ? '<span class="up">real</span>' : '<span class="mute">made up</span>'}</td><td class="mono">${money(x.cost)}</td></tr>`), 'No tips bought.')}
+    <div class="xs mute" style="margin:10px 0 4px">Trades the Securities Commission flagged</div>${tbl(['When', 'Stock', 'Side', 'Shares', 'Price', 'On a tip?'], (I.flagged || []).slice().reverse().map(x => `<tr><td class="xs">${esc(x.date)}</td><td class="b">${esc(x.tk)}</td><td>${esc(x.side)}</td><td class="mono">${x.sh}</td><td class="mono">${px2(x.px)}</td><td>${x.tip ? '<span class="chip r">yes</span>' : 'hype dump'}</td></tr>`), 'Nothing flagged.')}
+    ${(I.history || []).length ? `<div class="xs mute" style="margin-top:8px">Cases: ${I.history.map(h => `${esc(h.outcome)}${h.fine ? ' ' + money(h.fine) : ''} (${esc(h.date)})`).join(' · ')}</div>` : ''}` : '';
+  const TYPE = { buy: 'Bought', sell: 'Sold', short: 'Shorted', cover: 'Covered', tip: 'Bought a tip', loan: 'Borrowed', repay: 'Repaid', dividend: 'Dividend', item: 'Bought toy', pawn: 'Pawned' };
+  const log = L ? tbl(['When', 'What', 'Stock', 'Shares', 'Price', 'Amount', 'P/L'], (L.log || []).slice().reverse().map(x => `<tr><td class="xs">${esc(x.date)}</td><td>${esc(TYPE[x.type] || x.type)}${x.type === 'tip' ? ' <span class="xs mute">from ' + esc(CONTACT[x.src] || x.src) + '</span>' : x.type === 'loan' ? ' <span class="xs mute">from ' + esc(SHARK[x.src] || x.src) + '</span>' : ''}</td><td class="b">${esc(x.tk)}</td><td class="mono">${x.sh || ''}</td><td class="mono">${x.price ? px2(x.price) : ''}</td><td class="mono">${x.total ? money(x.total) : ''}</td><td class="mono ${x.pnl == null ? '' : x.pnl >= 0 ? 'up' : 'down'}">${x.pnl == null ? '' : money(x.pnl)}</td></tr>`), 'No activity yet.') : '';
+  const runs = tbl(['Week / duel', 'Status', 'Result'], (d.runs || []).map(r => `<tr><td>${esc(String(r.week).startsWith('duel-') ? '1v1 duel' : r.week)}</td><td>${esc(r.status)}${r.rigged ? ' <span class="chip y">rigged</span>' : ''}</td><td class="mono">${r.nw ? money(r.nw) + ' ' + pctS(r.ret) : ''}</td></tr>`), 'No ranked runs yet.');
+  const duels = (d.duels || []).length ? `<div class="xs mute" style="margin-top:8px">Duels: ${d.duels.map(x => `vs ${esc(x.vs)} (${esc(x.status)})`).join(' · ')}</div>` : '';
+  return `<div id="insp-back" style="position:fixed;inset:0;background:#0009;z-index:20;display:flex;justify-content:flex-end">
+  <div style="width:min(760px,100%);height:100%;overflow:auto;background:var(--bg);border-left:1px solid var(--line);padding:14px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><h1 style="font-size:18px">${esc(d.player.nickname)}</h1>${d.player.banned ? '<span class="chip r">banned</span>' : ''}<span class="spacer"></span><button id="insp-x">Close</button></div>
+  ${L ? `<div class="card"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+    <div><div class="xs mute">Net worth</div><div class="mono b" style="font-size:20px">${money(L.nw)}</div></div>
+    <div><div class="xs mute">Cash</div><div class="mono b" style="font-size:20px">${money(L.cash)}</div></div>
+    <div><div class="xs mute">Owes loan sharks</div><div class="mono b ${debt > 0 ? 'down' : ''}" style="font-size:20px">${money(debt)}</div></div>
+    <div><div class="xs mute">Level</div><div class="b" style="font-size:20px">${d.career?.level ?? 0}</div></div></div>
+    <div class="xs mute" style="margin-top:8px">Playing ${esc(L.mode)} · game date ${esc(L.date)} · snapshot ${ago(d.updated)} · last seen ${ago(d.player.lastSeen)} · joined ${ago(d.player.created)}</div></div>`
+    : `<div class="card"><div class="empty">This player has not sent a game snapshot yet. It arrives once they play with the updated game.</div></div>`}
+  ${L ? sec('Portfolio', pos + (shorts ? '<div style="margin-top:10px"></div>' + shorts : '')) : ''}
+  ${L ? sec('Loan sharks', loans) : ''}
+  ${L ? sec('Insider trading', insider) : ''}
+  ${L ? sec('Recent activity', log) : ''}
+  ${sec('Ranked runs and duels', runs + duels)}
+  </div></div>`;
+}
+function render() { $('app').innerHTML = (KEY ? mainView() : loginView()) + (KEY && ST.inspect ? inspectView(ST.inspect) : ''); }
 
 document.addEventListener('submit', e => { if (e.target.id === 'lf') { e.preventDefault(); KEY = $('pw').value; sessionStorage.setItem('mm.admin', KEY); render(); load(); } });
 document.addEventListener('input', e => {
@@ -125,6 +165,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'week') { ST.week = e.target.value.trim(); ST.companies = []; load(); }
 });
 document.addEventListener('click', e => {
+  if (e.target.id === 'insp-back' || e.target.id === 'insp-x') { ST.inspect = null; return render(); }
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'refresh') return load();
   if (b.id === 'logout') { KEY = ''; sessionStorage.removeItem('mm.admin'); return render(); }
@@ -133,6 +174,7 @@ document.addEventListener('click', e => {
   if (b.dataset.ev) { ST.ev.kind = b.dataset.ev; if (b.dataset.ev !== 'announce') ST.ev.mag = Math.max(1, Math.abs(ST.ev.mag)); return render(); }
   if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', isA ? { kind: 'announce', unit: v.unit, amount: v.dir * Number(v.amt), duration: v.dur, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null } : { kind: v.kind, magnitude: Math.abs(v.mag) / 100, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.dir > 0 ? '+' : '−'}${v.unit === 'usd' ? '$' : ''}${v.amt}${v.unit === 'usd' ? '' : '%'}` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
   const tr = b.closest('tr'); if (!tr) return; const playerId = tr.dataset.id, a = b.dataset.a, p = ST.data.players.find(x => x.id === playerId), name = p?.nickname;
+  if (a === 'inspect') { return api('inspect', { playerId }).then(d => { ST.inspect = d; render(); }, e2 => toast(e2.message, 1)); }
   if (a === 'mods') return act('mods', { playerId, vol: 2 ** Number(tr.querySelector('[data-k=vol]').value), luck: Number(tr.querySelector('[data-k=luck]').value) }, `Updated ${name}'s market`);
   if (a === 'normal') return act('mods', { playerId, vol: 1, luck: 0 }, `${name} is back to a fair market`);
   if (a === 'cash') { const v = Number(tr.querySelector('[data-k=cash]').value); if (!v) return toast('Enter an amount', 1); return act('cash', { playerId, amount: v }, `${v > 0 ? 'Sent' : 'Fined'} ${name} $${Math.abs(v).toLocaleString('en-US')}`); }
@@ -144,7 +186,7 @@ document.addEventListener('click', e => {
   if (a === 'remove') { if (!confirm(`Remove ${name}'s score from the leaderboard?`)) return; return act('removeRun', { runId: p.run.id }, `${name}'s score removed`); }
 });
 render(); if (KEY) load();
-setInterval(() => { if (KEY && document.visibilityState === 'visible' && !document.activeElement?.matches('input,textarea,select')) load(); }, 20000);
+setInterval(() => { if (KEY && !ST.inspect && document.visibilityState === 'visible' && !document.activeElement?.matches('input,textarea,select')) load(); }, 20000);
 </script>
 </body>
 </html>
