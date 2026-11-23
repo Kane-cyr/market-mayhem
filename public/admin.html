@@ -78,6 +78,7 @@ function godPanel() {
   const head = isA ? `${e.who || 'A Very Important Person'}: "${e.text || '…'}"` : e.kind === 'boom' ? 'Euphoric buying sweeps the market' : 'Mystery sell-off rips through the market';
   return `<div class="card"><h2>⚡ Market God</h2>
   <div class="seg">${[['announce', 'Announcement'], ['boom', 'Boom'], ['crash', 'Crash']].map(([k, l]) => `<button class="${e.kind === k ? 'on' : ''}" data-ev="${k}">${l}</button>`).join('')}</div>
+  ${isA ? `<button class="sm danger" id="ev-rug" style="width:100%;margin-bottom:8px" title="Fill in a rug pull: the developers vanish and the stock collapses 85% straight away">🧶 Rug pull preset</button>` : ''}
   ${isA ? `<label>Company<select id="ev-ticker"><option value="">Pick a company…</option>${co.map(x => `<option value="${esc(x.ticker)}" ${x.ticker === e.ticker ? 'selected' : ''}>${esc(x.ticker)} · ${esc(x.name)}</option>`).join('')}</select></label>
   <label>Who says it<input id="ev-who" maxlength="40" value="${esc(e.who)}" placeholder="The President"></label>
   <label>What they say<textarea id="ev-text" maxlength="160" rows="2" placeholder="${c ? esc(c.name) + ' makes great products. The best.' : 'They make great computers.'}">${esc(e.text)}</textarea></label>` : ''}
@@ -200,6 +201,7 @@ document.addEventListener('click', e => {
   if (b.dataset.dir) { ST.ev.dir = Number(b.dataset.dir); return render(); }
   if (b.dataset.unit) { ST.ev.unit = b.dataset.unit; ST.ev.amt = b.dataset.unit === 'usd' ? 10 : 25; return render(); }
   if (b.dataset.ev) { ST.ev.kind = b.dataset.ev; if (b.dataset.ev !== 'announce') ST.ev.mag = Math.max(1, Math.abs(ST.ev.mag)); return render(); }
+  if (b.id === 'ev-rug') { Object.assign(ST.ev, { kind: 'announce', dir: -1, unit: 'pct', amt: 85, dur: 0, who: 'The Developers', text: 'We have decided to pursue other opportunities. Thank you for your support.' }); toast('Rug pull filled in. Pick the company, then Unleash it.'); return render(); }
   if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', isA ? { kind: 'announce', unit: v.unit, amount: v.dir * Number(v.amt), duration: v.dur, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null } : { kind: v.kind, magnitude: Math.abs(v.mag) / 100, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.dir > 0 ? '+' : '−'}${v.unit === 'usd' ? '$' : ''}${v.amt}${v.unit === 'usd' ? '' : '%'}` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
   const tr = b.closest('tr'); if (!tr) return; const playerId = tr.dataset.id, a = b.dataset.a, p = ST.data.players.find(x => x.id === playerId), name = p?.nickname;
   if (a === 'inspect') { return api('inspect', { playerId }).then(d => { ST.inspect = d; render(); }, e2 => toast(e2.message, 1)); }

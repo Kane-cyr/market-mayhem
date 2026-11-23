@@ -219,6 +219,13 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
 
   if (['sfeed', 'announce', 'post', 'post_edit', 'post_delete', 'like', 'repost', 'comment', 'comments'].includes(op)) return handleSocial(db, p, op, body);
+  if (op === 'rugpull') { // dump everything and crash the stock in every other player's market
+    const tk = String(body.ticker || '').toUpperCase(); if (!/^[A-Z]{2,5}$/.test(tk)) return bad(400, 'Pick a stock.');
+    const size = Math.max(0.4, Math.min(1, Number(body.size) || 1));
+    await db.addFlows([{ player_id: p.id, ticker: tk, frac: -size }]);
+    await db.addPost({ author: p.id, body: `🧶 RUG PULL. I just dumped my entire $${tk} bag. Good luck, everyone.`, ticker: tk, stance: -1 });
+    return ok({ ok: true });
+  }
   if (op === 'crowd') { // everyone's career trades push prices for everyone else: report yours, collect theirs
     const fl = body.flows && typeof body.flows === 'object' ? Object.entries(body.flows).slice(0, 60) : [];
     const rows = fl.filter(([t, v]) => /^[A-Z]{2,5}$/.test(t) && Number.isFinite(Number(v)) && Number(v) !== 0).map(([t, v]) => ({ player_id: p.id, ticker: t, frac: Math.max(-1, Math.min(1, Number(v))) }));

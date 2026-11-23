@@ -110,7 +110,9 @@
       el('div', { class: 'hd' }, el('b', {}, '📣 Trader feed'), el('button', { onclick: load, title: 'Refresh' }, '↻'), el('button', { onclick: close, 'aria-label': 'Close' }, '×')),
       el('div', { class: 'cmp' }, ta, el('div', { class: 'row' }, el('button', { class: picker === 'stock' ? 'on' : '', onclick: () => { picker = picker === 'stock' ? '' : 'stock'; pq = ''; draw(); } }, '$ Mention a stock'), el('button', { class: picker === 'infl' ? 'on' : '', onclick: () => { picker = picker === 'infl' ? '' : 'infl'; pq = ''; draw(); } }, '@ Tag an influencer')), pick,
         el('div', { class: 'row' }, tk, seg(1, '🚀 Bullish'), seg(-1, '🔻 Bearish'), seg(0, 'Just talking'), el('span', { style: 'flex:1' }),
-        el('button', { class: 'p', onclick: async () => { const b = draft.trim(); if (!b) return; try { await api('post', { body: b, ticker: tick, stance }); draft = ''; tick = ''; stance = 0; err = ''; } catch (e) { err = e.message; } load(); } }, 'Post')),
+        el('button', { class: 'p', onclick: async () => { const b = draft.trim(); if (!b) return; try { await api('post', { body: b, ticker: tick, stance }); draft = ''; tick = ''; stance = 0; err = '';
+          if (/@\w+/.test(b)) { const f = await api('sfeed'), mine = f.posts.find(x => x.mine); if (mine?.comments) { const c = (await api('comments', { id: mine.id })).comments.find(x => x.npc); if (c) { close(); window.mmScenes?.meltdown(c.nickname, c.body); } } }
+        } catch (e) { err = e.message; } load(); } }, 'Post')),
         el('div', { class: 'mut' }, 'A bullish or bearish post about a stock pushes its price in other players\' markets. Every like and repost pushes harder.'),
         err ? el('div', { class: 'err' }, err) : null),
       ...(posts.length ? posts.map(postEl) : [el('div', { class: 'cmp mut' }, 'Nobody has posted yet. Be first.')]));

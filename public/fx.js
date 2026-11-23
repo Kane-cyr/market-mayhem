@@ -243,7 +243,7 @@
     if (!job) { playing = false; const u = ui(); if (u && savedSpeed != null) u.speed = savedSpeed; savedSpeed = null; window.__mm?.render?.(); return; }
     playing = true;
     const u = ui(); if (u) { if (savedSpeed == null) savedSpeed = u.speed; u.speed = 0; }
-    const { root, btn } = job.kind === 'president' ? sceneRally(job.data) : job.kind === 'shark' ? sceneShark(job.data) : sceneCash(job.data);
+    const { root, btn } = job.kind === 'custom' ? job.data() : job.kind === 'president' ? sceneRally(job.data) : job.kind === 'shark' ? sceneShark(job.data) : sceneCash(job.data);
     document.body.append(root);
     const stop = e => { if (e.key === 'Enter' && document.activeElement === btn) return; e.stopPropagation(); if (e.key === ' ') e.preventDefault(); };
     document.addEventListener('keydown', stop, true);
@@ -253,6 +253,7 @@
   const push = (kind, data) => { queue.push({ kind, data }); if (!playing) next(); };
 
   window.mmFx = {
+    custom: build => push('custom', build), // build() returns { root, btn }: the scene closes when btn is clicked
     shark: d => push('shark', d),
     president: d => push('president', { label: String(d.label || '').slice(0, 60), who: String(d.who || 'The President').slice(0, 40), text: String(d.text || '').slice(0, 160), name: d.name, ticker: d.ticker, mag: Number(d.mag) || 0 }),
     cash: (dollars, note) => { if (!(Number.isFinite(dollars) && Math.abs(dollars) >= 1)) return; const m = /^(\S+) sent you money(?:: (.*))?$/.exec(note || ''); push('cash', m ? { dollars, from: m[1], note: m[2] || '' } : { dollars, note: note ? String(note).slice(0, 200) : '' }); },

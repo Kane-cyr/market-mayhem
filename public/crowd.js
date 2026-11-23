@@ -36,10 +36,10 @@
       let moved = 0;
       for (const [tk, sum] of Object.entries(j.crowd || {})) {
         const c = H.companies[tk]; if (!c || c.status !== 'active') continue;
-        const L = Math.max(-MAX, Math.min(MAX, sum * K)); if (Math.abs(L) < 0.002) continue;
+        const L = sum <= -0.4 ? Math.max(-0.9, sum * 0.85) : Math.max(-MAX, Math.min(MAX, sum * K)); if (Math.abs(L) < 0.002) continue; // a rug pull (big negative flow) crashes far harder than normal selling
         H.impulses.push({ t: tk, rem: Math.log(1 + L), left: 6, start: H.t }); moved++;
         if (Math.abs(L) >= 0.03) window.__mm.news({ cat: 'Markets', sev: Math.abs(L) >= 0.1 ? 5 : 4, status: 'confirmed', tickers: [tk], source: 'Trading floor',
-          head: L > 0 ? `Traders pile into ${c.name}: heavy buying from other players` : `Traders dump ${c.name}: heavy selling from other players`,
+          head: L <= -0.3 ? `RUG PULL: ${c.name} collapses as a big holder dumps everything` : L > 0 ? `Traders pile into ${c.name}: heavy buying from other players` : `Traders dump ${c.name}: heavy selling from other players`,
           body: `Real players have been ${L > 0 ? 'buying' : 'selling'} ${tk} hard. Expect the price to ${L > 0 ? 'climb' : 'slide'} over the next day.`, impact: { co: {} } });
       }
       if (moved) { window.__mm.save(); window.__mm.render(); }
