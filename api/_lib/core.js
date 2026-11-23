@@ -95,7 +95,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
   if (op === 'players') { // public: trader directory
-    const ps = (await db.players()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.profile?.career?.nw ?? null, level: x.profile?.career?.level ?? 0, flex: x.profile?.career?.flex ?? 0, seen: x.last_seen }));
+    const ps = (await db.players()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: null, level: 0, flex: 0, seen: x.last_seen })); // Career values are client snapshots, not verified scores.
     ps.sort((a, b) => (b.nw ?? -1) - (a.nw ?? -1)); return ok({ rows: ps.slice(0, 200) });
   }
   if (op === 'board') {
@@ -219,12 +219,13 @@ const int = (v, a, b, d = a) => { const n = Math.round(Number(v)); return Number
 function cleanAvatar(a = {}) { a = a || {}; return { skin: int(a.skin, 0, 5), hair: int(a.hair, 0, 5), hairCol: int(a.hairCol, 0, 5), shirt: int(a.shirt, 0, 7), eyes: int(a.eyes, 0, 2) }; }
 const ITEM_IDS = new Set(ITEMS.map(i => i.id)), TYPES = new Set(['buy', 'sell', 'short', 'cover']), TK = /^[A-Z]{2,5}$/;
 function cleanProfile(pr = {}, prev = {}) {
-  pr = pr || {};
-  const c = pr.career && typeof pr.career === 'object' ? pr.career : prev?.career || {};
-  const career = { nw: int(c.nw, -1e13, 1e13, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
-  const trades = (Array.isArray(pr.trades) ? pr.trades : []).filter(t => t && TYPES.has(t.type) && TK.test(t.ticker)).slice(-30)
-    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e9), price: int(t.price, 1, 1e10), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -1e13, 1e13) }));
-  return { career, trades, live: cleanLive(pr.live) ?? prev?.live ?? null };
+  // Career, trades, and live game snapshots are not authoritative: they originate
+  // from the browser. Profile updates may only change cosmetic data.
+  return {
+    career: prev?.career || { nw: 0, level: 0, flex: 0, items: [], trades: 0, achievements: 0, title: '' },
+    trades: Array.isArray(prev?.trades) ? prev.trades.slice(-30) : [],
+    live: prev?.live ?? null
+  };
 }
 // Private snapshot of a player's game (cash, positions, loans, insider dealing) for the admin panel only.
 // The client is untrusted, so keep plain data with bounded sizes; never shown to other players.
