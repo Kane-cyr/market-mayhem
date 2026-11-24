@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 export function memoryDb() {
-  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = [], gifts = []; let mid = 0, pid2 = 0, cid2 = 0, gid = 0; let cid = 0, eid = 0;
+  const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = [], gifts = [], hits = []; let mid = 0, pid2 = 0, cid2 = 0, gid = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
   const clone = x => (x == null ? x : JSON.parse(JSON.stringify(x)));
   return {
@@ -27,6 +27,8 @@ export function memoryDb() {
     async runs(week) { return [...runs.values()].filter(r => !week || r.week === week).map(clone); },
     async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
     async claimCash(ids) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.claimed && !c.run_id) { c.claimed = true; out.push(clone(c)); } return out; }, // only rows this call flipped
+    async hit(key) { hits.push({ key, at: now() }); if (hits.length > 5000) hits.splice(0, 1000); },
+    async hitsSince(key, t) { return hits.filter(h => h.key === key && h.at > t).length; },
     async sentSince(pid, t) { return cash.filter(c => c.sender === pid && c.created_at > t).reduce((a, c) => a + Number(c.amount_cents), 0); },
     async creditsSince(pid, t) { return cash.filter(c => c.player_id === pid && c.created_at > t && Number(c.amount_cents) > 0).reduce((a, c) => a + Number(c.amount_cents), 0); },
     async giftsSince(pid, t) { return gifts.filter(g => g.sender === pid && g.created_at > t).map(clone); },
@@ -99,6 +101,9 @@ export async function supabaseDb(url, key) {
     pendingCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null).eq('claimed', false)),
     // conditional updates: a payment is delivered once, even if two tabs (or a ranked run and a career game) ask at the same moment
     claimCash: async ids => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids).eq('claimed', false).is('run_id', null).select('*')) : [],
+    // per-IP rate limiting (keys hold a hash of the IP, never the IP itself); old rows are pruned now and then
+    hit: async key => { await one(sb.from('rate_hits').insert({ key })); if (Math.random() < 0.02) await one(sb.from('rate_hits').delete().lt('at', new Date(Date.now() - 864e5).toISOString())); },
+    hitsSince: async (key, t) => { const { count, error } = await sb.from('rate_hits').select('id', { count: 'exact', head: true }).eq('key', key).gt('at', t); if (error) throw error; return count || 0; },
     sentSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('sender', pid).gt('created_at', t).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
     creditsSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('player_id', pid).gt('created_at', t).gt('amount_cents', 0).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
     giftsSince: (pid, t) => one(sb.from('gifts').select('id,item_id,created_at').eq('sender', pid).gt('created_at', t).limit(200)),

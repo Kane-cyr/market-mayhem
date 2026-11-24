@@ -135,3 +135,24 @@ grant usage, select on all sequences in schema public to service_role;
 alter table cash_adjustments add column if not exists sender uuid references players(id) on delete set null;
 create index if not exists cash_adjustments_sender_idx on cash_adjustments (sender, created_at);
 create index if not exists gifts_sender_idx on gifts (sender, created_at);
+
+-- per-IP rate limiting for sign-ups, wrong PINs and wrong admin passwords (keys hold a hash, never the IP)
+create table if not exists rate_hits (id bigint generated always as identity primary key, key text not null, at timestamptz not null default now());
+create index if not exists rate_hits_key_at_idx on rate_hits (key, at);
+
+-- Lockdown: only the game server (service_role) touches the database. The public anon/authenticated roles,
+-- whose keys Supabase hands out, get no permissions at all, and every table carries an explicit deny policy.
+revoke all on all tables in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
+do $$ declare t text; begin
+  for t in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists deny_public on public.%I', t);
+    execute format('create policy deny_public on public.%I as restrictive for all to anon, authenticated using (false) with check (false)', t);
+  end loop;
+end $$;

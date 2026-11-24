@@ -6,6 +6,7 @@ import { WEEKLY_DAYS } from './engine/game.js';
 import { ITEMS } from './engine/lifestyle.js';
 import { INFLUENCERS } from './engine/data/influencers.js';
 import { LEVELS } from './engine/progress.js';
+import { createHash } from 'node:crypto';
 import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, readToken, adminOk } from './auth.js';
 
 const ok = body => ({ status: 200, body });
@@ -16,6 +17,11 @@ const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to 
 const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
 const JUMP_WINDOW = 10 * 6e4, JUMP_X = 30, JUMP_MIN = 500000000; // flag a 30x jump of over $5,000,000 inside 10 minutes
 const dollars = c => '$' + Math.round(Number(c) / 100).toLocaleString('en-US');
+// Per-IP limits on the doors people knock on: new accounts, wrong PINs (across all accounts, so one PIN cannot
+// be tried on everyone) and wrong admin passwords. IPs are hashed before they are stored.
+const LIMITS = { reg: [15, 60], fail: [30, 15], admin: [10, 15] }; // [attempts, minutes]
+const ipKey = (kind, headers = {}) => { const ip = String(headers['x-real-ip'] || headers['x-vercel-forwarded-for'] || String(headers['x-forwarded-for'] || '').split(',')[0] || 'local').trim(); return kind + ':' + createHash('sha256').update('mm-rate|' + ip).digest('base64url').slice(0, 22); };
+const overLimit = async (db, kind, headers) => { const [n, min] = LIMITS[kind]; return (await db.hitsSince(ipKey(kind, headers), new Date(Date.now() - min * 6e4).toISOString())) >= n; };
 const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obfuscation; god settings are not shown in the game
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
@@ -152,14 +158,17 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!NICK_RE.test(nick)) return bad(400, 'Nicknames are 3-16 letters, numbers or underscores.');
     if (!PIN_RE.test(pin)) return bad(400, 'Your PIN must be exactly 4 digits.');
     if (op === 'register') {
-      try { const p = await db.createPlayer(nick, hashPin(pin)); return ok({ token: makeToken(p.id), nickname: p.nickname }); }
+      if (await overLimit(db, 'reg', headers)) return bad(429, 'Too many new accounts from your connection. Try again in an hour.');
+      try { const p = await db.createPlayer(nick, hashPin(pin)); await db.hit(ipKey('reg', headers)); return ok({ token: makeToken(p.id), nickname: p.nickname }); }
       catch (e) { if (e.code === '23505') return bad(409, 'That nickname is taken.'); throw e; }
     }
-    const p = await db.playerByNick(nick); if (!p) return bad(401, 'Wrong nickname or PIN.');
+    if (await overLimit(db, 'fail', headers)) return bad(429, 'Too many wrong PINs from your connection. Try again in 15 minutes.');
+    const p = await db.playerByNick(nick); if (!p) { await db.hit(ipKey('fail', headers)); return bad(401, 'Wrong nickname or PIN.'); }
     if (p.locked_until && new Date(p.locked_until) > new Date()) return bad(429, 'Too many wrong PINs. Try again in a few minutes.');
     if (!checkPin(pin, p.pin_hash)) {
       const f = (p.failed_logins || 0) + 1;
       await db.updatePlayer(p.id, f >= MAX_FAILS ? { failed_logins: 0, locked_until: new Date(Date.now() + LOCK_MIN * 6e4).toISOString() } : { failed_logins: f });
+      await db.hit(ipKey('fail', headers));
       return bad(401, 'Wrong nickname or PIN.');
     }
     await db.updatePlayer(p.id, { failed_logins: 0, locked_until: null, last_seen: new Date().toISOString() });
@@ -421,7 +430,8 @@ function cleanLive(x, depth = 0) {
   return null;
 }
 export async function handleAdmin(db, op, body = {}, headers = {}) {
-  if (!adminOk(headers['x-admin-key'])) return bad(401, 'Wrong admin password.');
+  if (await overLimit(db, 'admin', headers)) return bad(429, 'Too many wrong passwords. Try again in 15 minutes.');
+  if (!adminOk(headers['x-admin-key'])) { await db.hit(ipKey('admin', headers)); return bad(401, 'Wrong admin password.'); }
   body = body || {};
   const week = String(body.week || weekId()).slice(0, 10);
   const player = async () => { const x = await db.player(String(body.playerId || '')); if (!x) throw Object.assign(new Error('Player not found.'), { http: 404 }); return x; };
