@@ -67,6 +67,8 @@ export function memoryDb() {
     async follow(a, b, on) { const k = a + '>' + b; if (on) follows.set(k, { follower: a, followee: b, created_at: now() }); else follows.delete(k); },
     async following(a) { return [...follows.values()].filter(f => f.follower === a).map(f => f.followee); },
     async followerCount(b) { return [...follows.values()].filter(f => f.followee === b).length; },
+    async deleteEvents(week) { for (let i = events.length - 1; i >= 0; i--) if (events[i].week === week) events.splice(i, 1); },
+    async dropPendingCash() { for (const c of cash) if (!c.run_id && !c.claimed) c.claimed = true; },
     async addEvent(e) { const row = { id: ++eid, created_at: now(), ...e }; events.push(row); return clone(row); },
   };
 }
@@ -140,6 +142,8 @@ export async function supabaseDb(url, key) {
     cashList: () => one(sb.from('cash_adjustments').select('*').order('created_at', { ascending: false }).limit(200)),
     events: week => one(sb.from('global_events').select('*').eq('week', week).order('id')),
     addEvent: e => one(sb.from('global_events').insert(e).select().single()),
+    deleteEvents: week => one(sb.from('global_events').delete().eq('week', week)),
+    dropPendingCash: () => one(sb.from('cash_adjustments').update({ claimed: true }).eq('claimed', false).is('run_id', null)),
     setProfile: (id, avatar, profile) => one(sb.from('players').update({ avatar, profile, profile_at: new Date().toISOString() }).eq('id', id)),
     follow: (a, b, on) => on ? one(sb.from('follows').upsert({ follower: a, followee: b })) : one(sb.from('follows').delete().eq('follower', a).eq('followee', b)),
     following: async a => (await one(sb.from('follows').select('followee').eq('follower', a))).map(r => r.followee),

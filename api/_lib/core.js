@@ -409,6 +409,14 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
         await Promise.all(targets.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1 })));
         return ok({ reset: targets.length });
       }
+      case 'market_reset': { // the whole market starts over: every career restarts at $10,000 in a brand-new market,
+        // and this week's events, ranked runs, crowd pressure and undelivered Market God cash are cleared
+        const all = await db.players(), runs = await db.runs(week);
+        await Promise.all(all.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1 })));
+        await Promise.all(runs.map(r => db.deleteRun(r.id)));
+        await db.deleteEvents(week); await db.pruneFlows(new Date(Date.now() + 864e5).toISOString()); await db.dropPendingCash();
+        return ok({ players: all.length, runs: runs.length });
+      }
       case 'challenge_create': {
         const title = String(body.title || '').trim().slice(0, 80), goal = body.goal === 'least' ? 'least' : 'most';
         const startCash = Math.round(Number(body.startCash) * 100), prize = Math.round(Number(body.prize || 0) * 100), days = Math.round(Number(body.days));
