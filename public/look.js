@@ -109,12 +109,25 @@
   #lk-nav{display:none}
   @media(min-width:761px){
     html.look2 .nav{display:none!important}
-    html.look2 #app{margin-left:${W}px;grid-template-columns:0 minmax(0,1fr) 280px}
+    html.look2 #app{margin-left:var(--lkw);transition:margin-left .28s cubic-bezier(.2,.7,.2,1);grid-template-columns:0 minmax(0,1fr) 280px}
     html.look2 .top .brand{display:none}
-    #lk-nav{display:flex;position:fixed;left:0;top:0;bottom:0;width:${W}px;z-index:30;flex-direction:column;background:#0b0c0f;border-right:1px solid var(--line);padding:18px 12px 14px;font:13px/1.3 var(--sans);color:var(--dim);overflow:auto;scrollbar-width:none}
+    #lk-nav{display:flex;position:fixed;left:0;top:0;bottom:0;width:var(--lkw);transition:width .28s cubic-bezier(.2,.7,.2,1),padding .28s;overflow-x:hidden;z-index:30;flex-direction:column;background:#0b0c0f;border-right:1px solid var(--line);padding:18px 12px 14px;font:13px/1.3 var(--sans);color:var(--dim);overflow:auto;scrollbar-width:none}
   }
   @media(min-width:761px) and (max-width:1180px){html.look2 #app{grid-template-columns:0 minmax(0,1fr)}}
-  #lk-nav .bd{display:flex;align-items:center;gap:10px;padding:2px 8px 20px;color:#fff;text-decoration:none}
+  html.look2{--lkw:${W}px}html.look2.lk-small{--lkw:68px}
+  #lk-nav .top2{display:flex;align-items:center;gap:6px;padding:0 0 20px}
+  #lk-nav .tg{margin-left:auto;flex:none;width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:none;color:var(--mute);cursor:pointer;transition:transform .28s,color .2s}
+  #lk-nav .tg:hover{color:#fff;border-color:var(--line2)}
+  html.lk-small #lk-nav{padding:18px 10px 14px}
+  html.lk-small #lk-nav .top2{flex-direction:column;gap:12px}html.lk-small #lk-nav .tg{margin:0;transform:rotate(180deg)}
+  html.lk-small #lk-nav .bd span,html.lk-small #lk-nav .it>span:not(.n),html.lk-small #lk-nav .gh .chev,html.lk-small #lk-nav .lvl .nm{display:none}
+  html.lk-small #lk-nav .bd{padding:2px 0}
+  html.lk-small #lk-nav .gh{font-size:0;padding:8px 6px;pointer-events:none}html.lk-small #lk-nav .gh::before{content:'';display:block;flex:1;height:1px;background:var(--line)}
+  html.lk-small #lk-nav .items{grid-template-rows:1fr}
+  html.lk-small #lk-nav .it{justify-content:center;padding:10px 0;position:relative}
+  html.lk-small #lk-nav .it .n{position:absolute;top:3px;right:4px;min-width:15px;height:15px;font-size:9px;line-height:15px;padding:0 3px}
+  html.lk-small #lk-nav .lvl{margin:6px 0 10px;padding:8px 2px;text-align:center}html.lk-small #lk-nav .lvl .t{justify-content:center;font-size:11px}
+  #lk-nav .bd{display:flex;align-items:center;gap:10px;padding:2px 8px;color:#fff;text-decoration:none;min-width:0}
   #lk-nav .bd b{display:block;font-weight:800;font-size:13px;letter-spacing:.08em;line-height:1.15}
   #lk-nav .grp{margin-bottom:4px}
   #lk-nav .gh{display:flex;align-items:center;width:100%;gap:8px;background:none;border:0;color:var(--mute);font:600 10.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;padding:12px 10px 8px;cursor:pointer;text-align:left}
@@ -169,6 +182,8 @@
     { id: 'empire', label: 'Your empire', items: [['Office', '#office', 'brief'], ['Lifestyle', '#life', 'star'], ['Buy companies', 'act:empire', 'crown'], ['Loan sharks', '#loans', 'dollar'], ['Insider network', '#insider', 'eye']] },
   ];
   const opened = new Set(['trade']);
+  let small = false; try { small = localStorage.getItem('mm.nav.small') === '1'; } catch {}
+  root.classList.toggle('lk-small', small);
   const nav = document.createElement('nav'); nav.id = 'lk-nav'; nav.setAttribute('aria-label', 'Main');
   const orig = sel => document.querySelector('#app .nav ' + sel);
   const badge = target => { // copy the unread counts the classic bar shows
@@ -180,21 +195,22 @@
     const r = route(), lv = (orig('') && (document.querySelector('#app .nav')?.textContent || '').match(/LV\s*(\d+)/)) || null;
     for (const g of NAV) if (g.items.some(i => i[1] === r)) opened.add(g.id);
     const S = window.__mm?.G?.S, lvl = lv ? lv[1] : (S?.player?.level ?? '');
-    nav.innerHTML = `<a class="bd" href="#dashboard"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 7-8"/><path d="M15 7h4v4"/></svg><span><b>MARKET</b><b>MAYHEM</b></span></a>
+    nav.innerHTML = `<div class="top2"><a class="bd" href="#dashboard" title="Dashboard"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 7-8"/><path d="M15 7h4v4"/></svg><span><b>MARKET</b><b>MAYHEM</b></span></a><button class="tg" data-tg="1" title="${small ? 'Expand' : 'Collapse'} the sidebar" aria-label="${small ? 'Expand' : 'Collapse'} the sidebar">${ic('chev', 14).replace('M9 6l6 6-6 6', 'M15 6l-6 6 6 6')}</button></div>
       ${NAV.map(g => `<div class="grp ${opened.has(g.id) ? 'open' : ''}" data-g="${g.id}"><button class="gh" data-g="${g.id}" aria-expanded="${opened.has(g.id)}">${g.label}<span class="chev">${ic('chev', 13)}</span></button>
         <div class="items"><div>${g.items.map(([label, t, k]) => { const n = badge(t), cls = `it${t === r ? ' on' : ''}`;
-          return t.startsWith('act:') ? `<button class="${cls}" data-act2="${t.slice(4)}">${ic(k)}<span>${label}</span>${n ? `<span class="n">${n}</span>` : ''}</button>`
-            : `<a class="${cls}" href="${t}">${ic(k)}<span>${label}</span>${n ? `<span class="n">${n}</span>` : ''}</a>`; }).join('')}</div></div></div>`).join('')}
+          return t.startsWith('act:') ? `<button class="${cls}" data-act2="${t.slice(4)}" title="${label}">${ic(k)}<span>${label}</span>${n ? `<span class="n">${n}</span>` : ''}</button>`
+            : `<a class="${cls}" href="${t}" title="${label}">${ic(k)}<span>${label}</span>${n ? `<span class="n">${n}</span>` : ''}</a>`; }).join('')}</div></div></div>`).join('')}
       <div class="sp"></div>
-      ${lvl !== '' ? `<div class="lvl"><div class="t">Level ${lvl}</div><div class="nm">${esc(levelName(S))}</div></div>` : ''}
-      <button class="it" data-act2="guide">${ic('help')}<span>How to play</span></button>
-      <button class="it" data-act2="save">${ic('save')}<span>Save game</span></button>
-      <button class="it" data-act2="menu">${ic('gear')}<span>Menu &amp; settings</span></button>`;
+      ${lvl !== '' ? `<div class="lvl" title="Level ${lvl}"><div class="t">${small ? 'LV ' : 'Level '}${lvl}</div><div class="nm">${esc(levelName(S))}</div></div>` : ''}
+      <button class="it" data-act2="guide" title="How to play">${ic('help')}<span>How to play</span></button>
+      <button class="it" data-act2="save" title="Save game">${ic('save')}<span>Save game</span></button>
+      <button class="it" data-act2="menu" title="Menu and settings">${ic('gear')}<span>Menu &amp; settings</span></button>`;
     nav.dataset.sig = sig();
   }
   function levelName(S) { const t = document.querySelector('#app .status')?.textContent || ''; const m = t.match(/Level\s*\d+\s*·\s*([^\n]+?)\s*$/); return m ? m[1] : ''; }
   const sig = () => route() + '|' + NAV.flatMap(g => g.items.map(i => badge(i[1]))).join(',') + '|' + [...opened].join(',') + '|' + ((document.querySelector('#app .nav')?.textContent || '').match(/LV\s*\d+/) || [''])[0];
   nav.addEventListener('click', e => {
+    if (e.target.closest('[data-tg]')) { small = !small; root.classList.toggle('lk-small', small); try { localStorage.setItem('mm.nav.small', small ? '1' : ''); } catch {} draw(); setTimeout(() => dispatchEvent(new Event('resize')), 300); return; }
     const gh = e.target.closest('.gh'); if (gh) { const id = gh.dataset.g; opened.has(id) ? opened.delete(id) : opened.add(id); gh.parentElement.classList.toggle('open'); gh.setAttribute('aria-expanded', opened.has(id)); nav.dataset.sig = sig(); return; }
     const b = e.target.closest('[data-act2]'); if (!b) return;
     const a = b.dataset.act2;
