@@ -60,14 +60,14 @@
     agent: { skin: '#d9a073', hair: 'short', hairColor: '#1d1a17', outfit: 'suit', jacket: '#151a2e', pants: '#151a2e', shirt: '#ffffff', tie: '#111111', eyes: 'shades', badge: 'SEC', wide: 1.1 },
     rival: { skin: '#c68e63', hair: 'slick', hairColor: '#1d1a17', outfit: 'suit', jacket: '#2a2d36', pants: '#2a2d36', shirt: '#ffffff', tie: '#7a5a00', eyes: 'shades', wide: 1.1, angry: true, acc: 'chain' },
     influencer: { skin: '#e8b896', hair: 'long', hairColor: '#ff7eb6', outfit: 'hoodie', jacket: '#7e57c2', pants: '#22252e', headphones: true, wide: 0.95 },
-    god: { skin: '#f3d9bf', hair: 'long', hairColor: '#ffffff', outfit: 'robe', jacket: '#e9e6ff', beard: 'god', glow: true, wide: 1.25, halo: true },
+    god: { skin: '#f3d9bf', hair: 'long', hairColor: '#f4f4ff', outfit: 'robe', jacket: '#7d72c9', beard: 'god', glow: true, wide: 1.25, halo: true },
   };
   function person(o) {
     const w = o.wide || 1, g = new T.Group(), P = {};
     const skin = M(o.skin || '#e8b896', { r: 0.55 }), pants = M(o.pants || '#22252e'), top = M(o.jacket || '#22252e', { r: 0.72 }), shoe = M('#121212', { r: 0.35 });
     if (o.outfit === 'robe') {
-      g.add(cyl(0.26 * w, 0.52 * w, 1.5, top, 0, 0.75, 0, 28));
-      g.add(cyl(0.27 * w, 0.27 * w, 0.06, M('#d9b54a', { m: 0.6, r: 0.3 }), 0, 1.0, 0, 28));
+      g.add(cyl(0.24 * w, 0.38 * w, 1.5, top, 0, 0.75, 0, 28));
+      g.add(cyl(0.385 * w, 0.385 * w, 0.06, M('#d9b54a', { m: 0.7, r: 0.3 }), 0, 0.03, 0, 28), cyl(0.3 * w, 0.3 * w, 0.06, M('#d9b54a', { m: 0.7, r: 0.3 }), 0, 1.0, 0, 28));
     } else {
       for (const s of [-1, 1]) { g.add(cyl(0.075, 0.064, 0.86, pants, s * 0.105, 0.47, 0, 12)); g.add(box(0.13, 0.08, 0.27, shoe, s * 0.105, 0.04, 0.045)); }
       const pel = cyl(0.2 * w, 0.19 * w, 0.16, pants, 0, 0.9, 0); pel.scale.z = 0.7; g.add(pel);
@@ -140,7 +140,7 @@
     if (st === 'slick') { cap.scale.set(1.03, 1.05, 1.08); cap.material = M(o.hairColor, { r: 0.25, m: 0.2 }); hd.add(cap); return; }
     if (st === 'cap') return;
     hd.add(cap);
-    if (st === 'long') { const back = box(0.3, 0.34, 0.08, c, 0, -0.12, -0.12); back.geometry = new T.CylinderGeometry(0.16, 0.19, 0.34, 18, 1, true, Math.PI * 0.6, Math.PI * 0.8); back.material = M(o.hairColor, { r: 0.85, ds: true }); back.position.set(0, -0.12, 0); back.rotation.y = Math.PI; hd.add(back); }
+    if (st === 'long') { const back = box(0.3, 0.34, 0.08, c, 0, -0.12, -0.12); back.geometry = new T.CylinderGeometry(0.16, 0.19, 0.34, 18, 1, true, Math.PI * 0.6, Math.PI * 0.8); back.material = M(o.hairColor, { r: 0.85, ds: true }); back.position.set(0, -0.12, 0); hd.add(back); }
     if (st === 'mohawk') hd.add(box(0.045, 0.1, 0.28, c, 0, 0.19, -0.01));
     if (st === 'bun') hd.add(ball(0.065, c, 0, 0.16, -0.1, 14));
     if (st === 'afro') { const a = ball(0.225, c, 0, 0.09, -0.085, 20); hd.add(a); }
@@ -279,11 +279,11 @@
   SETS.cash = (S, d) => {
     const sky = tex(16, 512, (c, W, H) => { const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#05060f'); g.addColorStop(0.55, '#1a1740'); g.addColorStop(1, '#4a3f8e'); c.fillStyle = g; c.fillRect(0, 0, W, H); });
     S.scene.background = sky;
-    S.scene.add(new T.HemisphereLight('#b9c4ff', '#2a1f4a', 0.7));
-    const sun = new T.DirectionalLight('#fff3c4', 2); sun.position.set(0, 8, 6); S.scene.add(sun);
+    S.scene.add(new T.HemisphereLight('#b9c4ff', '#2a1f4a', 0.4));
+    const sun = new T.DirectionalLight('#fff3c4', 1.3); sun.position.set(3, 8, 6); S.scene.add(sun); const rimG = new T.DirectionalLight('#9fd0ff', 1.2); rimG.position.set(-4, 4, -6); S.scene.add(rimG);
     const glow = new T.PointLight('#fff6a8', 0, 30); glow.position.set(2, 6, 2); S.scene.add(glow);
-    const god = person(LOOKS.god); god.g.scale.setScalar(2.6); god.g.position.set(0, -1.2, -4); S.scene.add(god.g);
-    const aura = new T.Mesh(new T.SphereGeometry(2.6, 32, 20), new T.MeshBasicMaterial({ color: '#fffbe0', transparent: true, opacity: 0.08 })); aura.position.set(0, 3.8, -4.6); S.scene.add(aura);
+    const god = person(LOOKS.god); god.g.scale.setScalar(2.1); god.g.position.set(0, -1.2, -4); S.scene.add(god.g);
+    const aura = new T.Mesh(new T.SphereGeometry(2.6, 32, 20), new T.MeshBasicMaterial({ color: '#fffbe0', transparent: true, opacity: 0.08 })); aura.position.set(0, 3.0, -4.6); S.scene.add(aura);
     const bs = new T.Shape(); [[0, 0], [0.32, 0], [0.12, -0.5], [0.42, -0.5], [-0.12, -1.35], [0.06, -0.72], [-0.22, -0.72], [0, 0]].forEach(([x, y], i) => i ? bs.lineTo(x, y) : bs.moveTo(x, y));
     const bolt = new T.Mesh(new T.ExtrudeGeometry(bs, { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02 }), M('#fff3a0', { e: '#ffe45c', ei: 2.5 }));
     bolt.position.set(0.05, -0.62, 0.04); bolt.rotation.z = Math.PI; god.P.armR.add(bolt);
@@ -293,15 +293,15 @@
     const gift = d.reset || (d.dollars || 0) > 0;
     S.tick.push(t => {
       for (const c of clouds) { c.position.y += c.userData.v * 0.016 * (t < 2 ? 2.2 : 0.6); if (c.position.y > 9) c.position.y = -4; }
-      const rise = ease(Math.min(1, (t - 0.6) / 1.6)); god.g.position.y = lerp(-6, -1.2, rise); idle(god, t, t > 1.8 && t < 3.2);
+      const rise = ease(Math.min(1, (t - 0.6) / 1.6)); god.g.position.y = lerp(-6, -0.6, rise); idle(god, t, t > 1.8 && t < 3.2);
       god.P.armR.rotation.set(-lerp(0.2, 2.9, ease(Math.min(1, Math.max(0, (t - 1.6) / 0.9)))), 0, -0.15);
       if (t > 3.15 && !strike.children.length) { // the bolt comes down
-        const pts = [new T.Vector3(2.2, 7, -3)]; for (let k = 1; k < 9; k++) pts.push(new T.Vector3(2.2 - k * 0.3 + (Math.random() - 0.5) * 0.9, 7 - k * 1.1, -3 + k * 0.4));
+        const pts = [new T.Vector3(1.9, 6.4, -3.6)]; for (let k = 1; k < 9; k++) pts.push(new T.Vector3(1.9 + k * 0.45 + (Math.random() - 0.5) * 0.8, 6.4 - k * 1.0, -3.6 + k * 0.5));
         const tube = new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 60, 0.09, 6), M('#fffbd0', { e: '#fff6a8', ei: 4 })); strike.add(tube); S.shake = 0.3;
       }
       glow.intensity = t > 3.15 && t < 3.6 ? 40 * Math.random() : glow.intensity * 0.9;
       aura.material.opacity = 0.06 + (gift ? 0.05 : 0.02) * (1 + Math.sin(t * 3));
-      S.cam.position.set(Math.sin(t * 0.3) * 0.4, 1.6, 7.5); look(S.cam, 0, 3, -4);
+      S.cam.position.set(Math.sin(t * 0.3) * 0.4, 3.3, 6.6); look(S.cam, 0, 3.3, -4);
     });
   };
   // SEC raid: agents in suits and shades storm your office under police lights
@@ -335,7 +335,7 @@
     const glow = new T.PointLight('#9fd0ff', 0, 3); glow.position.set(1.15, 0.8, -1.1); const red = new T.PointLight('#ff1a2a', 0, 8); red.position.set(0, 2.5, 1); S.scene.add(glow, red);
     S.tick.push(t => {
       const ring = Math.sin(t * 22) > 0 && (t % 1.4) < 0.9; phone.position.x = 1.15 + (ring ? (Math.random() - 0.5) * 0.012 : 0); screen.position.x = phone.position.x; glow.intensity = ring ? 2.2 : 0.8; red.intensity = (Math.sin(t * 3) + 1) * 1.6;
-      const up = ease(Math.min(1, Math.max(0, (t - 1.1) / 0.8))); me.g.rotation.x = lerp(-Math.PI / 2, -0.35, up); me.g.position.set(0, lerp(0.62, 0.42, up), lerp(0.35, -0.75, up)); me.P.head.rotation.y = up * 0.5; idle(me, t, false);
+      const up = ease(Math.min(1, Math.max(0, (t - 1.1) / 0.8))); me.g.rotation.x = lerp(-Math.PI / 2, -1.12, up); me.g.position.set(0, 0.62, 0.35); me.P.head.rotation.y = up * 0.5; idle(me, t, false);
       S.cam.position.set(1.8, 1.7, 2.2); look(S.cam, 0.2, 0.8, -0.8);
     });
   };
@@ -343,11 +343,11 @@
   SETS.ipo = (S) => {
     lights(S, { key: '#fff4e0', ki: 2, kx: 0, ky: 6, kz: 4, fi: 0.6 }); floor(S, '#3a3128', 40, 40, { r: 0.35, m: 0.1 });
     const wallT = tex(1024, 256, (c, W, H) => { c.fillStyle = '#04070c'; c.fillRect(0, 0, W, H); c.font = '700 34px ui-monospace,monospace'; for (let r = 0; r < 5; r++) for (let k = 0; k < 7; k++) { const up = Math.random() > 0.3; c.fillStyle = up ? '#22c55e' : '#f04452'; c.fillText(`${['NRLT', 'VLTD', 'PXLN', 'WOOF', 'HVEX', 'MOON', 'ORBT'][(k + r) % 7]} ${up ? '▲' : '▼'}${(Math.random() * 9).toFixed(1)}`, 10 + k * 150, 44 + r * 48); } });
-    wallT.wrapS = wallT.wrapT = T.RepeatWrapping; wallT.repeat.set(2, 3); const w = wall(S, '#000', -4, 20, 9, wallT); w.material = new T.MeshBasicMaterial({ map: wallT });
+    wallT.wrapS = wallT.wrapT = T.RepeatWrapping; wallT.repeat.set(2, 3); const w = wall(S, '#000', -4, 20, 9, wallT); w.material = new T.MeshBasicMaterial({ map: wallT, color: '#9a9a9a' });
     for (const x of [-4.5, -2.6, 2.6, 4.5]) S.scene.add(cyl(0.3, 0.32, 6, M('#e8e1d2', { r: 0.6 }), x, 3, -2.5, 24));
     S.scene.add(box(3.2, 1.2, 0.8, M('#1c3a6e', { r: 0.5 }), 0, 0.6, -0.2), box(3.4, 0.08, 1, M('#c9a227', { m: 0.8, r: 0.3 }), 0, 1.24, -0.2));
     const bellG = new T.Group(); bellG.position.set(1.3, 3.3, -0.6); S.scene.add(bellG);
-    const prof = []; for (let i = 0; i <= 16; i++) { const k = i / 16; prof.push(new T.Vector2(Math.max(0.02, Math.sin(Math.min(1, k * 1.05) * Math.PI / 2) * 0.42 + (k > 0.82 ? (k - 0.82) * 0.9 : 0)), -k * 0.8)); }
+    const prof = [[0.001, 0.02], [0.12, 0.01], [0.2, -0.04], [0.25, -0.12], [0.27, -0.25], [0.29, -0.4], [0.33, -0.52], [0.4, -0.62], [0.49, -0.7], [0.53, -0.74], [0.5, -0.76]].map(([x, y]) => new T.Vector2(x, y));
     const bell = new T.Mesh(new T.LatheGeometry(prof, 40), M('#d4a52c', { m: 0.95, r: 0.22, ds: true })); bell.castShadow = true; bellG.add(bell); bellG.add(ball(0.08, M('#a07a1a', { m: 0.9, r: 0.3 }), 0, -0.78, 0, 12));
     const me = person(playerLook()); me.g.position.set(-0.4, 1.28, -0.4); S.scene.add(me.g);
     const gav = new T.Group(); gav.add(cyl(0.02, 0.02, 0.4, M('#5a3a1e'), 0, -0.2, 0, 8)); const hd = cyl(0.05, 0.05, 0.16, M('#5a3a1e'), 0, -0.4, 0, 12); hd.rotation.z = Math.PI / 2; gav.add(hd); gav.position.y = -0.66; me.P.armR.add(gav);
@@ -428,7 +428,7 @@
     for (const [x, z] of [[-2.2, -0.5], [2.4, -1]]) { const tube = box(1.2, 0.05, 0.12, M('#e9f4ff', { e: '#e9f4ff', ei: 2 }), x, 3.2, z); S.scene.add(tube); const l = new T.PointLight('#d8ecff', 2.4, 8); l.position.set(x, 3, z); S.scene.add(l); S.tick.push(t => { const on = !(x < 0 && Math.sin(t * 13) > 0.9); l.intensity = on ? 2.4 : 0.1; tube.material.emissiveIntensity = on ? 2 : 0.1; }); }
     const car = new T.Group(); car.position.set(-2.5, 0, -2.6); car.rotation.y = 0.2; car.add(box(4, 0.7, 1.8, M('#3b0d12', { r: 0.25, m: 0.6 }), 0, 0.55, 0), box(2.2, 0.55, 1.6, M('#14161a', { r: 0.1, m: 0.5 }), -0.2, 1.15, 0)); for (const [x, z] of [[-1.3, 0.9], [1.3, 0.9], [-1.3, -0.9], [1.3, -0.9]]) { const w = cyl(0.33, 0.33, 0.25, M('#111'), x, 0.33, z, 18); w.rotation.x = Math.PI / 2; car.add(w); } S.scene.add(car); };
   SETS.office = S => { lights(S, { key: '#ffe2c0', ki: 1.6, fi: 0.45 }); floor(S, '#2b2520', 30, 30, { r: 0.5 }); wall(S, '#3b3a40', -3, 14, 6); window3d(S, 1.8, 2, -2.95, 2.6, 1.6, cityTex()); desk(S, -1.6, -1.6, 2, 0.8); monitor(S, -1.6, 0.79, -1.7, 0.2); S.scene.add(box(0.5, 1.8, 0.4, M('#5a4636'), 3.2, 0.9, -2.6)); };
-  SETS.floor = S => { lights(S, { key: '#fff1dd', ki: 1.8, fi: 0.5 }); floor(S, '#25262c', 40, 40, { r: 0.5 }); const wt = tex(1024, 256, (c, W, H) => { c.fillStyle = '#04070c'; c.fillRect(0, 0, W, H); c.font = '700 30px ui-monospace,monospace'; for (let r = 0; r < 6; r++) for (let k = 0; k < 8; k++) { const up = Math.random() > 0.35; c.fillStyle = up ? '#22c55e' : '#f04452'; c.fillText(`${['MMX', 'NRLT', 'VLTD', 'HVEX', 'WOOF', 'PGEN', 'ORBT', 'PXLN'][k]} ${up ? '+' : '-'}${(Math.random() * 6).toFixed(2)}%`, 8 + k * 128, 36 + r * 40); } }); const w = wall(S, '#000', -4, 24, 8, wt); w.material = new T.MeshBasicMaterial({ map: wt });
+  SETS.floor = S => { lights(S, { key: '#fff1dd', ki: 1.8, fi: 0.5 }); floor(S, '#25262c', 40, 40, { r: 0.5 }); const wt = tex(1024, 256, (c, W, H) => { c.fillStyle = '#04070c'; c.fillRect(0, 0, W, H); c.font = '700 30px ui-monospace,monospace'; for (let r = 0; r < 6; r++) for (let k = 0; k < 8; k++) { const up = Math.random() > 0.35; c.fillStyle = up ? '#22c55e' : '#f04452'; c.fillText(`${['MMX', 'NRLT', 'VLTD', 'HVEX', 'WOOF', 'PGEN', 'ORBT', 'PXLN'][k]} ${up ? '+' : '-'}${(Math.random() * 6).toFixed(2)}%`, 8 + k * 128, 36 + r * 40); } }); wt.wrapS = wt.wrapT = T.RepeatWrapping; wt.repeat.set(2, 3); const w = wall(S, '#000', -4, 24, 8, wt); w.material = new T.MeshBasicMaterial({ map: wt, color: '#9a9a9a' });
     for (let r = 0; r < 3; r++) for (let k = 0; k < 4; k++) { desk(S, -3.6 + k * 2.4, -1.4 - r * 1.6 + 0.3, 1.8, 0.7, '#2a2d36'); monitor(S, -3.9 + k * 2.4, 0.79, -1.5 - r * 1.6 + 0.3, 0, (k * 90) % 360); monitor(S, -3.3 + k * 2.4, 0.79, -1.5 - r * 1.6 + 0.3, 0, 0); } confetti(S, 140, [9, 5, 4], 3); };
   SETS.flat = S => { lights(S, { key: '#ffd9b0', ki: 1.3, fi: 0.45 }); floor(S, '#4a3a2c', 30, 30, { r: 0.6 }); wall(S, '#5d5470', -3, 14, 6); window3d(S, -2, 2, -2.95, 1.8, 1.4, cityTex());
     const sofa = new T.Group(); sofa.position.set(1.8, 0, -2.2); sofa.add(box(2.2, 0.45, 0.9, M('#7a2f3b', { r: 0.9 }), 0, 0.3, 0), box(2.2, 0.6, 0.25, M('#7a2f3b', { r: 0.9 }), 0, 0.75, -0.35), box(0.25, 0.6, 0.9, M('#6a2632'), -1.1, 0.5, 0), box(0.25, 0.6, 0.9, M('#6a2632'), 1.1, 0.5, 0)); S.scene.add(sofa);
