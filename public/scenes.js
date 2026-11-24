@@ -67,7 +67,7 @@
   .scn-av svg{display:block}`));
 
   function scene(cls, art, kick, big, say, info, choices) {
-    const root = el('div', { class: 'scn ' + cls, role: 'dialog', 'aria-label': big }), art2 = el('div', { class: 'art' }, ...art);
+    const root = el('div', { class: 'scn ' + cls, role: 'dialog', 'aria-label': big }), art2 = el('div', { class: 'art' }, ...art); window.mm3d?.attach(root, cls);
     const result = el('div', { class: 'say', style: 'display:none' });
     const done = el('button', { style: 'display:none' }, 'Continue');
     const row = el('div', { class: 'row' });

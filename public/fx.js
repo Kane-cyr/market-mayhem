@@ -129,7 +129,7 @@
   }
 
   const sceneRally = d => {
-    const root = h('div', { id: 'mmfx', class: 'pres', role: 'dialog', 'aria-label': 'Presidential announcement' });
+    const root = h('div', { id: 'mmfx', class: 'pres', role: 'dialog', 'aria-label': 'Presidential announcement' }); window.mm3d?.attach(root, 'pres', d);
     root.append(rallyStage());
     for (const delay of [0, .7, 1.3]) root.append(h('div', { class: 'mmfx-flash', style: `animation-delay:${delay}s;animation-duration:${2.1 + delay}s` }));
     root.append(h('div', { class: 'mmfx-banner' }, h('i'), 'LIVE · PRESS CONFERENCE'));
@@ -182,7 +182,7 @@
     return g;
   }
   const sceneShark = d => {
-    const root = h('div', { id: 'mmfx', class: 'shark', role: 'dialog', 'aria-label': 'Loan shark' });
+    const root = h('div', { id: 'mmfx', class: 'shark', role: 'dialog', 'aria-label': 'Loan shark' }); window.mm3d?.attach(root, 'shark', d);
     const room = h('div', { class: 'mmfx-room' });
     room.append(h('div', { class: 'mmfx-window' }), h('div', { class: 'mmfx-door' }), h('div', { class: 'mmfx-desk' }));
     const who = h('div', { class: 'mmfx-shark-wrap' }); who.append(sharkSvg(d.shark));
@@ -210,7 +210,7 @@
 
   const sceneCash = d => {
     const gift = d.reset || d.dollars > 0;
-    const root = h('div', { id: 'mmfx', class: 'cash', role: 'dialog', 'aria-label': 'Market God' });
+    const root = h('div', { id: 'mmfx', class: 'cash', role: 'dialog', 'aria-label': 'Market God' }); window.mm3d?.attach(root, 'cash', d);
     seed = 11;
     for (let i = 0; i < 18; i++) { const size = 160 + rnd() * 240; root.append(h('div', { class: 'mmfx-cloud', style: `width:${size}px;height:${size * .62}px;left:${(rnd() * 110 - 8).toFixed(0)}%;--rise:${(40 + rnd() * 70).toFixed(0)}vh;animation-delay:${(rnd() * .9).toFixed(2)}s` })); }
     const god = svg('svg', { class: 'mmfx-god', viewBox: '0 0 300 360' });
