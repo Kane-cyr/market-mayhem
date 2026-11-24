@@ -2,7 +2,7 @@
 // big happens. Choices only change the game in career mode; in ranked runs, duels and challenges the
 // scenes are for show, so the server's replay of your run is never affected.
 //   SEC raid (insider investigation opens)  · 3am margin call  · IPO bell (taking your company public)
-//   hostile takeover bid for your company   · yacht party       · market crash on the trading floor
+//   hostile takeover bid for your company   · yacht party  (the market-crash scene was removed: it played too often)
 //   influencer meltdown on a livestream      · magazine cover when you reach Millionaire, Tycoon, Legend
 (() => {
   'use strict';
@@ -161,7 +161,6 @@
       mark.day = day;
       if (career()) for (let i = 0; i < (p.empire || []).length; i++) if (Math.random() < 0.03) { hostile(i); break; }
     }
-    const idx = G.idx; if (idx?.prevClose && idx.level / idx.prevClose - 1 <= -0.05 && mark.crashDay !== day) { mark.crashDay = day; crash(idx.level / idx.prevClose - 1); }
   }
   setInterval(watch, 1000);
   window.mmScenes = { raid, marginCall, ipo, hostile, yachtParty, crash, meltdown, cover };

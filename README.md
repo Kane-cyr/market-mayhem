@@ -20,7 +20,8 @@ supabase/schema.sql  database tables (safe to run again)
 |---|---|
 | `guide.js` | How-to-play slides, shown once after sign-in and from Menu → How to play |
 | `fx.js` | Full-screen scenes: presidential press rally (with a 10 s trading window), Market God cash and resets, loan-shark shakedown |
-| `scenes.js` | SEC raid, 3am margin call, IPO bell, hostile takeover, yacht party, crash, influencer livestream, magazine cover |
+| `look.js` | The game's look: grouped sidebar, near-black theme, calmer motion and a logo for every company (`?look=classic` shows the old layout) |
+| `scenes.js` | SEC raid, 3am margin call, IPO bell, hostile takeover, yacht party, influencer livestream, magazine cover |
 | `duels.js` | 1v1 duels and Market God challenges (⚔) |
 | `msgs.js` | The phone (💬): player chats with seen receipts, money, gifts, shared tips, and texting the sharks, insiders and influencers |
 | `social.js` | Trader feed (📣): posts, likes, reposts, comments, edits, stock and influencer search, live card on the Social page |

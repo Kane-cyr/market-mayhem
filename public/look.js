@@ -1,12 +1,13 @@
-// "New look" preview. Off by default, so players see the classic game.
-// Turn it on in your browser with  ?look=new  and back off with  ?look=classic  (remembered per browser).
+// The game's look: grouped sidebar, near-black theme, calmer motion, company logos.
+// ?look=classic shows the old layout in that browser (remembered); ?look=new switches back.
 // It regroups the left bar into a labelled sidebar with four sections, restyles the game in a calmer
 // near-black theme with softer motion, and gives every listed company its own logo.
 (() => {
   'use strict';
   const flag = new URLSearchParams(location.search).get('look');
-  try { if (flag === 'new') localStorage.setItem('mm.look', 'new'); if (flag === 'classic') localStorage.removeItem('mm.look'); } catch {}
-  let on = false; try { on = localStorage.getItem('mm.look') === 'new'; } catch {}
+  // the new look is the standard one; ?look=classic brings the old layout back in that browser, ?look=new undoes it
+  try { if (flag === 'classic') localStorage.setItem('mm.look', 'classic'); if (flag === 'new') localStorage.removeItem('mm.look'); } catch {}
+  let on = true; try { on = localStorage.getItem('mm.look') !== 'classic'; } catch {}
   window.mmLook = { on };
   if (!on) return;
   const root = document.documentElement; root.classList.add('look2');
@@ -188,8 +189,7 @@
       ${lvl !== '' ? `<div class="lvl"><div class="t">Level ${lvl}</div><div class="nm">${esc(levelName(S))}</div></div>` : ''}
       <button class="it" data-act2="guide">${ic('help')}<span>How to play</span></button>
       <button class="it" data-act2="save">${ic('save')}<span>Save game</span></button>
-      <button class="it" data-act2="menu">${ic('gear')}<span>Menu &amp; settings</span></button>
-      <a class="back" href="?look=classic">Switch back to the classic look</a>`;
+      <button class="it" data-act2="menu">${ic('gear')}<span>Menu &amp; settings</span></button>`;
     nav.dataset.sig = sig();
   }
   function levelName(S) { const t = document.querySelector('#app .status')?.textContent || ''; const m = t.match(/Level\s*\d+\s*·\s*([^\n]+?)\s*$/); return m ? m[1] : ''; }
