@@ -11,6 +11,11 @@ import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, rea
 const ok = body => ({ status: 200, body });
 const bad = (status, error, extra = {}) => ({ status, body: { error, ...extra } });
 const START_CASH = 1000000; // cents ($10,000)
+// Anti-cheat limits. The career game runs in the player's browser, so its numbers are self-reported.
+const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to other players
+const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
+const JUMP_WINDOW = 10 * 6e4, JUMP_X = 30, JUMP_MIN = 500000000; // flag a 30x jump of over $5,000,000 inside 10 minutes
+const dollars = c => '$' + Math.round(Number(c) / 100).toLocaleString('en-US');
 const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obfuscation; god settings are not shown in the game
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
@@ -166,12 +171,12 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '')); if (!x || x.banned) return bad(404, 'No trader by that name.');
     const [run, followers] = await Promise.all([db.runFor(x.id, weekId()), db.followerCount(x.id)]);
     const viewer = await authPlayer(db, headers); const following = viewer ? (await db.following(viewer.id)).includes(x.id) : false;
-    const { live: _live, ...pub } = x.profile || {};
+    const { live: _live, audit: _audit, ...pub } = x.profile || {};
     return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: pub, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
   if (op === 'players') { // public: trader directory
-    const ps = (await db.playersCareer()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.career?.nw ?? null, level: x.career?.level ?? 0, flex: x.career?.flex ?? 0, seen: x.last_seen }));
+    const ps = (await db.playersCareer()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.flag ? null : x.career?.nw ?? null, level: x.career?.level ?? 0, flex: x.career?.flex ?? 0, seen: x.last_seen }));
     ps.sort((a, b) => (b.nw ?? -1) - (a.nw ?? -1)); return ok({ rows: ps.slice(0, 200) });
   }
   if (op === 'board') {
@@ -192,6 +197,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'profile') { // the game pushes your look, career snapshot and recent trades
     const avatar = cleanAvatar(body.avatar), profile = cleanProfile(body.profile, p.profile);
     if (p.profile_at && Date.now() - new Date(p.profile_at) < 15000 && !body.force) return ok({ ok: true, throttled: true });
+    profile.audit = await audit(db, p, profile);
     await db.setProfile(p.id, avatar, profile); return ok({ ok: true });
   }
   if (op === 'follow') {
@@ -211,9 +217,9 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const fresh = forPlayer(evs, p.id).filter(e => Date.now() - new Date(e.created_at) < 15 * 6e4);
     const reset = p.reset_ver || 0, gifts = await db.claimGifts(p.id);
     const gv = gifts.map(g => ({ id: g.id, item: g.item_id, paid: Number(g.paid), from: g.from }));
-    if (!cash.length && !fresh.length) return ok({ none: true, reset, gifts: gv });
-    await db.claimCash(cash.map(c => c.id));
-    return ok({ reset, gifts: gv, cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) });
+    const got = cash.length ? await db.claimCash(cash.map(c => c.id)) : []; // another tab may have taken some of these a moment ago
+    if (!got.length && !fresh.length) return ok({ none: true, reset, gifts: gv });
+    return ok({ reset, gifts: gv, cfg: enc({ cash: got.map(cashPayload), events: fresh.map(evPayload) }) });
   }
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
@@ -252,8 +258,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const amt = Math.round(Number(body.amount)); if (!Number.isInteger(amt) || amt < 100) return bad(400, 'Send at least $1.');
     const live = p.profile?.live; if (!live || live.mode !== 'career') return bad(400, 'Open your career game first, then try again.');
     if (amt > Number(live.cash || 0)) return bad(400, 'You do not have that much cash.');
+    if (p.profile?.audit?.flag) return bad(403, 'Your account is under review, so sending money is paused. The Market God will look at it.');
+    const sent = await db.sentSince(p.id, new Date(Date.now() - 864e5).toISOString()), left = Math.max(0, SEND_DAY_CAP - sent);
+    if (amt > left) return bad(400, left > 0 ? `You can send up to ${dollars(SEND_DAY_CAP)} a day. You have ${dollars(left)} left today.` : `You have sent your ${dollars(SEND_DAY_CAP)} for today. Try again tomorrow.`);
     const note = String(body.note || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-    await db.addCash(x.id, amt, `${p.nickname} sent you money${note ? ': ' + note : ''}`);
+    await db.addCash(x.id, amt, `${p.nickname} sent you money${note ? ': ' + note : ''}`, p.id);
     await db.setProfile(p.id, p.avatar || {}, { ...p.profile, live: { ...live, cash: Number(live.cash) - amt } });
     await db.addMessage(p.id, x.id, `💸 Sent you $${(amt / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}${note ? ' · ' + note : ''}`);
     return ok({ ok: true });
@@ -262,7 +271,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '').trim()); if (!x || x.banned) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot gift yourself.');
     const it = ITEMS.find(i => i.id === String(body.item)); if (!it) return bad(400, 'That is not a real item.');
     if (!(p.profile?.career?.items || []).includes(it.id)) return bad(400, 'You do not own that item.');
-    await db.addGift(p.id, x.id, it.id, Math.max(0, Math.min(Number(body.paid) || it.price, it.price * 2)));
+    if (p.profile?.audit?.flag) return bad(403, 'Your account is under review, so sending gifts is paused. The Market God will look at it.');
+    const recent = await db.giftsSince(p.id, new Date(Date.now() - 864e5).toISOString());
+    if (recent.length >= GIFT_DAY_CAP) return bad(400, `You can send ${GIFT_DAY_CAP} gifts a day. Try again tomorrow.`);
+    if (recent.some(g => g.item_id === it.id)) return bad(400, `You already gave away a ${it.name} today. Buy another one tomorrow.`);
+    await db.addGift(p.id, x.id, it.id, it.price); // valued at the shop price; the sender's own figure is ignored
     await db.addMessage(p.id, x.id, `🎁 Sent you a gift: ${it.name}`);
     return ok({ ok: true });
   }
@@ -308,10 +321,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
       return ok({ finished: true, runId: existing.id, status: existing.status, nw: existing.final_nw && Number(existing.final_nw), ret: existing.ret, reason: existing.reject_reason, week });
     }
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(week)]);
-    const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: cash.map(cashPayload), events: forPlayer(evs, p.id).map(evPayload) };
+    const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: [], events: forPlayer(evs, p.id).map(evPayload) };
     let run; try { run = await db.createRun({ player_id: p.id, week, start_payload: payload, issued: [] }); }
     catch (e) { if (e.code === '23505') return bad(409, 'You already started this week.'); throw e; }
-    await db.markCash(cash.map(c => c.id), run.id);
+    const got = cash.length ? await db.markCash(cash.map(c => c.id), run.id) : [];
+    if (got.length) { payload.cash = got.map(cashPayload); await db.updateRun(run.id, { start_payload: payload }); }
     return ok({ runId: run.id, week, cfg: enc(payload) });
   }
 
@@ -325,10 +339,10 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const last = (run.issued || []).at(-1) || run.start_payload;
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(run.week)]);
     const seen = deliveredIds(run), fresh = forPlayer(evs, p.id).filter(e => !seen.has(e.id));
-    if (p.mods_ver === last.ver && !cash.length && !fresh.length) { await db.updateRun(run.id, patch); return ok({ none: true }); }
-    const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: cash.map(cashPayload), events: fresh.map(evPayload) };
+    const got = cash.length ? await db.markCash(cash.map(c => c.id), run.id) : [];
+    if (p.mods_ver === last.ver && !got.length && !fresh.length) { await db.updateRun(run.id, patch); return ok({ none: true }); }
+    const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: got.map(cashPayload), events: fresh.map(evPayload) };
     await db.updateRun(run.id, { ...patch, issued: [...(run.issued || []), payload] });
-    await db.markCash(cash.map(c => c.id), run.id);
     return ok({ cfg: enc(payload) });
   }
 
@@ -369,6 +383,23 @@ const clampN = (v, a, b) => Math.min(b, Math.max(a, Number(v)));
 const int = (v, a, b, d = a) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d; };
 function cleanAvatar(a = {}) { a = a || {}; return { skin: int(a.skin, 0, 5), hair: int(a.hair, 0, 7), hairCol: int(a.hairCol, 0, 7), shirt: int(a.shirt, 0, 9), eyes: int(a.eyes, 0, 2), beard: int(a.beard, 0, 3), hat: int(a.hat, 0, 4), acc: int(a.acc, 0, 4), mouth: int(a.mouth, 0, 3), pants: int(a.pants, 0, 5) }; }
 const ITEM_IDS = new Set(ITEMS.map(i => i.id)), TYPES = new Set(['buy', 'sell', 'short', 'cover']), TK = /^[A-Z]{2,5}$/;
+// Flags a career upload whose net worth or cash grew faster than the game allows, after allowing for money the
+// server itself handed over (Market God, other players) and for recent Market God events that move prices.
+// A flag stays until the Market God clears it; flagged players are hidden from the trader list and cannot send.
+async function audit(db, p, profile) {
+  const prev = p.profile?.audit || {}, now = Date.now();
+  const nw = Math.max(Number(profile.career?.nw) || 0, Number(profile.live?.mode === 'career' ? profile.live?.cash : 0) || 0);
+  const hist = (Array.isArray(prev.hist) ? prev.hist : []).filter(h => Array.isArray(h) && now - h[0] < 3 * JUMP_WINDOW);
+  if (prev.flag) return { hist: [...hist, [now, nw]].slice(-40), flag: prev.flag, last: prev.last ?? null };
+  const recent = hist.filter(h => now - h[0] < JUMP_WINDOW).map(h => h[1]);
+  const base = Math.max(START_CASH, recent.length ? Math.min(...recent) : Number(prev.last ?? p.profile?.career?.nw ?? START_CASH) || START_CASH);
+  const since = new Date(now - JUMP_WINDOW).toISOString();
+  const [credits, evs] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId())]);
+  const godMoved = forPlayer(evs, p.id).some(e => now - new Date(e.created_at) < JUMP_WINDOW + 5 * 6e4);
+  const limit = Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X;
+  const flag = !godMoved && nw > limit ? { at: new Date(now).toISOString(), from: base, to: nw, why: `Went from ${dollars(base)} to ${dollars(nw)} in under 10 minutes` } : null;
+  return { hist: [...hist, [now, nw]].slice(-40), flag, last: nw };
+}
 function cleanProfile(pr = {}, prev = {}) {
   pr = pr || {};
   const c = pr.career && typeof pr.career === 'object' ? pr.career : prev?.career || {};
@@ -399,20 +430,25 @@ export async function handleAdmin(db, op, body = {}, headers = {}) {
       case 'overview': {
         const [players, runs, evs, cash] = await Promise.all([db.players(), db.runs(week), db.events(week), db.cashList()]);
         const rm = new Map(runs.map(r => [r.player_id, r]));
-        return ok({ week, players: players.map(x => { const r = rm.get(x.id), lv = x.profile?.live; return { id: x.id, nickname: x.nickname, money: lv ? { nw: lv.nw, cash: lv.cash, debt: (lv.loans || []).reduce((a, l) => a + (Number(l?.owed) || 0), 0), mode: lv.mode, heat: lv.insider?.heat ?? 0, at: x.profile_at } : null, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck), created: x.created_at, lastSeen: x.last_seen, locked: !!(x.locked_until && new Date(x.locked_until) > new Date()),
+        return ok({ week, players: players.map(x => { const r = rm.get(x.id), lv = x.profile?.live; return { id: x.id, nickname: x.nickname, flag: x.profile?.audit?.flag || null, money: lv ? { nw: lv.nw, cash: lv.cash, debt: (lv.loans || []).reduce((a, l) => a + (Number(l?.owed) || 0), 0), mode: lv.mode, heat: lv.insider?.heat ?? 0, at: x.profile_at } : null, banned: x.banned, reason: x.ban_reason, vol: Number(x.vol_mult), luck: Number(x.luck), created: x.created_at, lastSeen: x.last_seen, locked: !!(x.locked_until && new Date(x.locked_until) > new Date()),
           run: r && { id: r.id, status: r.status, nw: r.final_nw && Number(r.final_nw), ret: r.ret, rigged: r.rigged, suspect: r.suspect, reason: r.reject_reason, started: r.started_at, submitted: r.submitted_at } }; }),
           events: evs, cash: cash.slice(0, 50) });
       }
       case 'reset': { // everyone (or the chosen players) starts a fresh career with $10,000
         const all = await db.players(), want = Array.isArray(body.playerIds) && body.playerIds.length ? new Set(body.playerIds.map(String)) : null;
         const targets = all.filter(x => !want || want.has(x.id));
-        await Promise.all(targets.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1 })));
+        await Promise.all(targets.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1, profile: { ...(x.profile || {}), audit: null } })));
         return ok({ reset: targets.length });
+      }
+      case 'clearflag': { // the Market God has looked at a flagged player and accepts their current numbers
+        const x = await player(), nw = Number(x.profile?.career?.nw) || START_CASH;
+        await db.updatePlayer(x.id, { profile: { ...(x.profile || {}), audit: { hist: [[Date.now(), nw]], flag: null, last: nw } } });
+        return ok({ ok: true });
       }
       case 'market_reset': { // the whole market starts over: every career restarts at $10,000 in a brand-new market,
         // and this week's events, ranked runs, crowd pressure and undelivered Market God cash are cleared
         const all = await db.players(), runs = await db.runs(week);
-        await Promise.all(all.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1 })));
+        await Promise.all(all.map(x => db.updatePlayer(x.id, { reset_ver: (x.reset_ver || 0) + 1, profile: { ...(x.profile || {}), audit: null } })));
         await Promise.all(runs.map(r => db.deleteRun(r.id)));
         await db.deleteEvents(week); await db.pruneFlows(new Date(Date.now() + 864e5).toISOString()); await db.dropPendingCash();
         return ok({ players: all.length, runs: runs.length });

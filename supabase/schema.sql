@@ -130,3 +130,8 @@ create table if not exists gifts (id bigint generated always as identity primary
 alter table messages enable row level security; alter table flows enable row level security; alter table posts enable row level security; alter table post_likes enable row level security; alter table post_comments enable row level security; alter table gifts enable row level security;
 grant select, insert, update, delete on public.messages, public.flows, public.posts, public.post_likes, public.post_comments, public.gifts to service_role;
 grant usage, select on all sequences in schema public to service_role;
+
+-- who sent a player-to-player payment (null for the Market God); used for the daily sending cap
+alter table cash_adjustments add column if not exists sender uuid references players(id) on delete set null;
+create index if not exists cash_adjustments_sender_idx on cash_adjustments (sender, created_at);
+create index if not exists gifts_sender_idx on gifts (sender, created_at);

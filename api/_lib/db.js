@@ -18,7 +18,7 @@ export function memoryDb() {
     async updatePlayer(id, patch) { const p = players.get(id); if (!p) return null; Object.assign(p, patch); return clone(p); },
     async players() { return [...players.values()].map(clone); },
     async playersBrief() { return [...players.values()].map(x => ({ id: x.id, nickname: x.nickname, avatar: clone(x.avatar), banned: x.banned, last_seen: x.last_seen })); },
-    async playersCareer() { return [...players.values()].map(x => ({ id: x.id, nickname: x.nickname, avatar: clone(x.avatar), banned: x.banned, last_seen: x.last_seen, career: clone(x.profile?.career ?? null) })); },
+    async playersCareer() { return [...players.values()].map(x => ({ id: x.id, nickname: x.nickname, avatar: clone(x.avatar), banned: x.banned, last_seen: x.last_seen, career: clone(x.profile?.career ?? null), flag: clone(x.profile?.audit?.flag ?? null) })); },
     async run(id) { return clone(runs.get(id) || null); },
     async runFor(pid, week) { for (const r of runs.values()) if (r.player_id === pid && r.week === week && r.status !== 'removed') return clone(r); return null; },
     async createRun(r) { for (const x of runs.values()) if (x.player_id === r.player_id && x.week === r.week && x.status !== 'removed') { const e = new Error('exists'); e.code = '23505'; throw e; } const row = { id: randomUUID(), status: 'active', issued: [], final_nw: null, ret: null, rigged: false, reject_reason: null, started_at: now(), submitted_at: null, actions: null, ...clone(r) }; runs.set(row.id, row); return clone(row); },
@@ -26,7 +26,10 @@ export function memoryDb() {
     async deleteRun(id) { runs.delete(id); },
     async runs(week) { return [...runs.values()].filter(r => !week || r.week === week).map(clone); },
     async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
-    async claimCash(ids) { for (const c of cash) if (ids.includes(c.id)) c.claimed = true; },
+    async claimCash(ids) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.claimed && !c.run_id) { c.claimed = true; out.push(clone(c)); } return out; }, // only rows this call flipped
+    async sentSince(pid, t) { return cash.filter(c => c.sender === pid && c.created_at > t).reduce((a, c) => a + Number(c.amount_cents), 0); },
+    async creditsSince(pid, t) { return cash.filter(c => c.player_id === pid && c.created_at > t && Number(c.amount_cents) > 0).reduce((a, c) => a + Number(c.amount_cents), 0); },
+    async giftsSince(pid, t) { return gifts.filter(g => g.sender === pid && g.created_at > t).map(clone); },
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
@@ -59,8 +62,8 @@ export function memoryDb() {
     async updateChallenge(id, patch) { const c = chals.get(id); if (!c) return null; Object.assign(c, patch); return clone(c); },
     async updateDuel(id, patch) { const d = duels.get(id); if (!d) return null; Object.assign(d, patch); return clone(d); },
     async cashForRun(runId) { return cash.filter(c => c.run_id === runId).map(clone); },
-    async markCash(ids, runId) { for (const c of cash) if (ids.includes(c.id)) c.run_id = runId; },
-    async addCash(pid, amount_cents, note) { const c = { id: ++cid, player_id: pid, amount_cents, note, created_at: now(), run_id: null }; cash.push(c); return clone(c); },
+    async markCash(ids, runId) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.run_id && !c.claimed) { c.run_id = runId; out.push(clone(c)); } return out; },
+    async addCash(pid, amount_cents, note, sender = null) { const c = { id: ++cid, player_id: pid, amount_cents, note, sender, created_at: now(), run_id: null }; cash.push(c); return clone(c); },
     async cashList() { return cash.map(clone); },
     async events(week) { return events.filter(e => e.week === week).map(clone); },
     async setProfile(id, avatar, profile) { const p = players.get(id); if (p) Object.assign(p, { avatar: clone(avatar), profile: clone(profile), profile_at: now() }); },
@@ -86,7 +89,7 @@ export async function supabaseDb(url, key) {
     players: () => one(sb.from('players').select('*').order('created_at')),
     // light versions for the polled endpoints: never drag every player's private game snapshot along
     playersBrief: () => one(sb.from('players').select('id,nickname,avatar,banned,last_seen')),
-    playersCareer: () => one(sb.from('players').select('id,nickname,avatar,banned,last_seen,career:profile->career')),
+    playersCareer: () => one(sb.from('players').select('id,nickname,avatar,banned,last_seen,career:profile->career,flag:profile->audit->flag')),
     run: id => one(sb.from('runs').select('*').eq('id', id).maybeSingle()),
     runFor: (pid, week) => one(sb.from('runs').select('*').eq('player_id', pid).eq('week', week).neq('status', 'removed').maybeSingle()),
     createRun: r => one(sb.from('runs').insert(r).select().single()),
@@ -94,7 +97,11 @@ export async function supabaseDb(url, key) {
     deleteRun: id => one(sb.from('runs').delete().eq('id', id)),
     runs: week => one(week ? sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,reject_reason,started_at,submitted_at,start_payload,issued').eq('week', week) : sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,started_at,submitted_at')),
     pendingCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null).eq('claimed', false)),
-    claimCash: ids => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids)) : null,
+    // conditional updates: a payment is delivered once, even if two tabs (or a ranked run and a career game) ask at the same moment
+    claimCash: async ids => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids).eq('claimed', false).is('run_id', null).select('*')) : [],
+    sentSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('sender', pid).gt('created_at', t).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
+    creditsSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('player_id', pid).gt('created_at', t).gt('amount_cents', 0).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
+    giftsSince: (pid, t) => one(sb.from('gifts').select('id,item_id,created_at').eq('sender', pid).gt('created_at', t).limit(200)),
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
@@ -109,8 +116,8 @@ export async function supabaseDb(url, key) {
     addComment: (id, pid, body, npc) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body, npc: npc || null })),
     addGift: (a, b, item, paid) => one(sb.from('gifts').insert({ sender: a, recipient: b, item_id: item, paid })),
     claimGifts: async pid => {
-      const gs = await one(sb.from('gifts').select('*').eq('recipient', pid).eq('claimed', false).limit(50)); if (!gs.length) return [];
-      await one(sb.from('gifts').update({ claimed: true }).in('id', gs.map(g => g.id)));
+      const want = await one(sb.from('gifts').select('id').eq('recipient', pid).eq('claimed', false).limit(50)); if (!want.length) return [];
+      const gs = await one(sb.from('gifts').update({ claimed: true }).in('id', want.map(g => g.id)).eq('claimed', false).select('*')); if (!gs.length) return [];
       const ps = await one(sb.from('players').select('id,nickname').in('id', [...new Set(gs.map(g => g.sender))])); const pm = new Map(ps.map(x => [x.id, x.nickname]));
       return gs.map(g => ({ ...g, from: pm.get(g.sender) || '?' }));
     },
@@ -137,8 +144,8 @@ export async function supabaseDb(url, key) {
     updateChallenge: (id, patch) => one(sb.from('challenges').update(patch).eq('id', id).select().maybeSingle()),
     updateDuel: (id, patch) => one(sb.from('duels').update(patch).eq('id', id).select().maybeSingle()),
     cashForRun: runId => one(sb.from('cash_adjustments').select('*').eq('run_id', runId)),
-    markCash: (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: runId }).in('id', ids)) : null,
-    addCash: (pid, amount_cents, note) => one(sb.from('cash_adjustments').insert({ player_id: pid, amount_cents, note }).select().single()),
+    markCash: async (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: runId }).in('id', ids).is('run_id', null).eq('claimed', false).select('*')) : [],
+    addCash: (pid, amount_cents, note, sender = null) => one(sb.from('cash_adjustments').insert({ player_id: pid, amount_cents, note, ...(sender ? { sender } : {}) }).select().single()),
     cashList: () => one(sb.from('cash_adjustments').select('*').order('created_at', { ascending: false }).limit(200)),
     events: week => one(sb.from('global_events').select('*').eq('week', week).order('id')),
     addEvent: e => one(sb.from('global_events').insert(e).select().single()),
