@@ -429,7 +429,9 @@ async function audit(db, p, profile) {
   const since = new Date(Math.min(now - 15 * 6e4, Number(prev.at) || now - 15 * 6e4) - 5 * 6e4).toISOString();
   const [credits, evs, flows] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId()), db.flowsSince(since, p.id)]);
   const recentEvs = forPlayer(evs, p.id).filter(e => new Date(e.created_at) > new Date(since));
-  const marketWide = recentEvs.some(e => !e.ticker), excused = new Set([...recentEvs.filter(e => e.ticker).map(e => e.ticker), ...flows.filter(f => Math.abs(Number(f.frac)) >= 0.2).map(f => f.ticker)]);
+  const pumped = {}; for (const f of flows) if (Number(f.frac) > 0) pumped[f.ticker] = (pumped[f.ticker] || 0) + Number(f.frac); // other players' buying pushes prices up (at most +25% per 20 s)
+  for (const k in pumped) if (pumped[k] < 0.01) delete pumped[k];
+  const marketWide = recentEvs.some(e => !e.ticker), excused = new Set([...recentEvs.filter(e => e.ticker).map(e => e.ticker), ...Object.keys(pumped)]);
   let flag = null;
   for (const o of obs) {
     const ref = prices[o.tk];
@@ -441,18 +443,22 @@ async function audit(db, p, profile) {
     if (!ref || o.t >= ref[0]) prices[o.tk] = [o.t, o.px];
   }
   // the whole portfolio cannot grow faster than the most volatile stock could carry it, even fully borrowed (4x)
-  const heldExcused = [...(live.holdings || []), ...(live.shorts || [])].some(h => excused.has(h?.tk));
+  const touched = new Set([...(prev.heldTk || []), ...obs.map(o => o.tk)]);
+  const godTouched = recentEvs.some(e => !e.ticker || touched.has(e.ticker)); // a Market God event moved something this player owns or trades
+  const heldExcused = godTouched;
+  const crowdGrow = Object.keys(pumped).length ? Math.pow(1.25, Math.min(90, Math.ceil((now - (Number(prev.at) || now)) / 20000) + 1)) : 1;
   if (!flag && !backInTime && prev.t != null && prev.last != null && !marketWide && !heldExcused) {
-    const days = Math.max(0, (t - Number(prev.t)) / 6), from = Math.max(START_CASH, Number(prev.last) || 0), grow = 4 * Math.exp(allowedRise(days));
+    const days = Math.max(0, (t - Number(prev.t)) / 6), from = Math.max(START_CASH, Number(prev.last) || 0), grow = 4 * Math.exp(allowedRise(days)) * crowdGrow;
     if (nw > from * grow + credits * grow && nw - from > JUMP_MIN)
       flag = { at: new Date(now).toISOString(), from, to: nw, days: Math.round(days * 10) / 10, why: `Net worth went from ${dollars(from)} to ${dollars(nw)} in ${days < 1 ? 'under a game day' : Math.round(days * 10) / 10 + ' game days'}, faster than any stock in the market could carry it.` };
   }
   // money out of nowhere: a big jump with no trades since the last upload and no holdings before or after
   const base = Math.max(START_CASH, Number(prev.last) || Number(p.profile?.career?.nw) || START_CASH);
-  if (!flag && !backInTime && prev.t != null && !obs.some(o => o.what !== 'held') && !prev.held && !keep.held && nw > Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X)
+  if (!flag && !backInTime && !godTouched && prev.t != null && !obs.some(o => o.what !== 'held') && !prev.held && !keep.held && nw > Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X)
     flag = { at: new Date(now).toISOString(), from: base, to: nw, why: `Money went from ${dollars(base)} to ${dollars(nw)} with no trades and nothing held.` };
   const tks = Object.keys(prices); if (tks.length > 120) for (const k of tks.sort((a, b) => prices[a][0] - prices[b][0]).slice(0, tks.length - 120)) delete prices[k];
-  return { ...keep, prices, flag };
+  const heldTk = [...new Set([...(live.holdings || []), ...(live.shorts || [])].map(h => h?.tk).filter(Boolean))].slice(0, 60);
+  return { ...keep, prices, heldTk, flag };
 }
 // The browser reports career stats; keep the ones the server can check consistent with each other.
 // Levels only ever go up in the game, so a level may rise only as far as the reported net worth allows and an
