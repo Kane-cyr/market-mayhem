@@ -6,7 +6,7 @@ import { WEEKLY_DAYS } from './engine/game.js';
 import { ITEMS } from './engine/lifestyle.js';
 import { INFLUENCERS } from './engine/data/influencers.js';
 import { LEVELS, levelFor } from './engine/progress.js';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, readToken, adminOk } from './auth.js';
 
 const ok = body => ({ status: 200, body });
@@ -30,7 +30,7 @@ const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekl
 function evPayload(e) { return { id: e.id, ...(e.late ? { late: true } : {}), kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
 function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...(c.note ? { note: String(c.note).slice(0, 200) } : {}) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
-const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
+const deliveredIds = run => { const ids = new Set(); for (const raw of [run.start_payload, ...(run.issued || [])]) { const p = raw?.payload || raw; for (const e of p.events || []) ids.add(e.id); } return ids; };
 
 const DUEL = 'duel-', CHAL = 'chal-';
 const FORFEIT_MS = 3 * 864e5; // if one player finishes and the other has not after 3 days, the finisher wins
@@ -361,14 +361,33 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const t = Number(body.t) || 0, patch = {};
     if (t < run.max_tick) patch.suspect = true; else patch.max_tick = t; // going backwards in time means a reloaded save
     if (run.week.startsWith(DUEL) || run.week.startsWith(CHAL)) { await db.updateRun(run.id, patch); return ok({ none: true }); }
-    const last = (run.issued || []).at(-1) || run.start_payload;
+    // An issued payload stays pending until the client has applied it and saved its run.
+    const pending = (run.issued || []).find(x => x?.payload && !x.acked);
+    if (pending) { await db.updateRun(run.id, patch); return ok({ cfg: enc(pending.payload) }); }
+    const issued = (run.issued || []).map(x => x?.payload || x);
+    const last = issued.at(-1) || run.start_payload;
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(run.week)]);
     const seen = deliveredIds(run), fresh = forPlayer(evs, p.id).filter(e => !seen.has(e.id));
     const got = cash.length ? await db.markCash(cash.map(c => c.id), run.id) : [];
     if (p.mods_ver === last.ver && !got.length && !fresh.length) { await db.updateRun(run.id, patch); return ok({ none: true }); }
-    const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: got.map(cashPayload), events: fresh.map(evPayload) };
-    await db.updateRun(run.id, { ...patch, issued: [...(run.issued || []), payload] });
+    const pid = randomUUID();
+    const payload = { pid, ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: got.map(cashPayload), events: fresh.map(evPayload) };
+    const record = { id: pid, payload, acked: false };
+    await db.updateRun(run.id, { ...patch, issued: [...(run.issued || []), record] });
     return ok({ cfg: enc(payload) });
+  }
+
+  if (op === 'sync_ack') {
+    const run = await db.run(String(body.runId || ''));
+    if (!run || run.player_id !== p.id) return bad(404, 'Run not found.');
+    const payloadId = String(body.payloadId || '');
+    if (!/^[0-9a-f-]{36}$/i.test(payloadId)) return bad(400, 'Invalid sync acknowledgement.');
+    const issued = run.issued || [], index = issued.findIndex(x => x?.id === payloadId && x.payload);
+    if (index < 0) return bad(404, 'Sync payload not found.');
+    if (issued[index].acked) return ok({ ok: true });
+    const next = issued.map((x, i) => i === index ? { ...x, acked: true } : x);
+    await db.updateRun(run.id, { issued: next });
+    return ok({ ok: true });
   }
 
   if (op === 'submit') {
@@ -381,7 +400,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     // god payloads in the log must be exactly what the server issued: the start payload first, then syncs
     const first = actions[0];
     if (!Array.isArray(first) || first[1] !== 'god' || first[0] !== startTick(run.week) || !same(first[2], run.start_payload)) return reject('Run did not start with the issued settings.');
-    const pool = [...(run.issued || [])];
+    const pool = (run.issued || []).map(x => x?.payload || x);
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
     const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
@@ -390,7 +409,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (nw !== claimed) { try { const L = replayRun({ week: run.week, days: chal?.days }, actions, { legacyFees: true }), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ } }
     if (!S) return reject('Replay failed: ' + (replayErr?.message || 'unknown'));
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
-    const pays = [run.start_payload, ...(run.issued || [])], evs = await db.events(run.week);
+    const pays = [run.start_payload, ...(run.issued || []).map(x => x?.payload || x)], evs = await db.events(run.week);
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
