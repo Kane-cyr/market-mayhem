@@ -316,7 +316,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!c || c.status !== 'open' || !(await db.challengePlayers(c.id)).includes(p.id)) return bad(404, 'That challenge is not open to you.');
     const week = CHAL + c.id, existing = await db.runFor(p.id, week);
     if (existing) {
-      if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week, days: c.days, startCash: Number(c.start_cash) });
+      if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week, cfg: enc(existing.start_payload), maxTick: existing.max_tick || 0, days: c.days, startCash: Number(c.start_cash) });
       return ok({ finished: true, runId: existing.id, status: existing.status, nw: existing.final_nw && Number(existing.final_nw), ret: existing.ret, reason: existing.reject_reason, week });
     }
     // the challenge bankroll arrives as a Market God grant on top of the normal $10,000, so the replay check still works
@@ -330,7 +330,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!d || ![d.challenger, d.opponent].includes(p.id) || d.status !== 'active') return bad(404, 'That duel is not open.');
     const week = DUEL + d.id, existing = await db.runFor(p.id, week);
     if (existing) {
-      if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week });
+      if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week, cfg: enc(existing.start_payload), maxTick: existing.max_tick || 0 });
       return ok({ finished: true, runId: existing.id, status: existing.status, nw: existing.final_nw && Number(existing.final_nw), ret: existing.ret, reason: existing.reject_reason, week });
     }
     const payload = { ver: 0, vol: 1, luck: 0, cash: [], events: [] }; // duels are always a fair market
