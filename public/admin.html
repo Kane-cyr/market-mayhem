@@ -56,6 +56,21 @@ tbody tr{transition:background-color .2s}tbody tr:hover{background:#15171c}
 #toast{border-radius:12px;background:#15171c;padding:11px 14px;box-shadow:0 10px 30px #000a;border-left-color:#f7a600}
 .login .card{padding:22px}
 @media(max-width:640px){header{padding:8px 14px}main{padding:14px 12px 40px}.card{padding:14px}}
+.prow td{vertical-align:middle}.prow.open td{border-bottom-color:transparent;background:#121319}
+td.acts{text-align:right;white-space:nowrap}td.acts button+button{margin-left:6px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.chips:empty{display:none}.chips .chip{margin:0}
+.chip.y{background:#f7a6001f;color:#f7b733}
+.pmanage>td{background:#121319;padding:4px 12px 16px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.mbox{border:1px solid var(--line2);border-radius:12px;padding:12px 14px;background:#0d0e12}.mbox h3{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--dim)}
+.mbox.warn{border-color:#f0445255;background:#f044520d}.mbox .row2 input{flex:1;width:auto;min-width:0}
+.tw{overflow-x:auto}
+@media(max-width:1180px){main{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:640px){header{height:auto;min-height:56px;flex-wrap:wrap;row-gap:8px;padding:10px 14px}header button{padding:6px 10px;font-size:12px}
+  .tw table,.tw tbody{display:block;min-width:0}.tw thead{display:none}
+  tr.prow{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:12px 4px;border-bottom:1px solid var(--line)}tr.prow td{border:0;padding:0}
+  tr.prow td.acts{grid-column:1/-1;text-align:left;white-space:normal;margin-top:6px}tr.prow td.acts button{margin:0 6px 0 0}
+  tr.pmanage{display:block}tr.pmanage>td{display:block;padding:6px 0 14px}.mgrid{grid-template-columns:1fr}}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -88,17 +103,26 @@ function loginView() {
 }
 const volLabel = v => v.toFixed(2) + '×';
 function playerRow(p) {
-  const r = p.run;
+  const r = p.run, m = p.money, open = ST.open === p.id;
   const status = r ? `<span class="chip ${r.status === 'submitted' ? 'g' : r.status === 'rejected' ? 'r' : ''}">${esc(r.status)}</span>${r.rigged ? '<span class="chip y">rigged</span>' : ''}${r.suspect ? '<span class="chip r" title="Went back in time: probably reloaded a save">suspect</span>' : ''}<div class="mono">${money(r.nw)} <span class="${r.ret >= 0 ? 'up' : 'down'}">${pctS(r.ret)}</span></div>${r.reason ? `<div class="xs down">${esc(r.reason)}</div>` : ''}` : '<span class="mute xs">not started</span>';
-  const m = p.money;
-  const moneyCell = `<td>${m ? `<div class="mono b">${money(m.nw)}</div><div class="xs mute">cash ${money(m.cash)}</div>${m.debt > 0 ? `<div class="xs down">owes sharks ${money(m.debt)}</div>` : ''}${m.heat >= 20 ? `<div class="xs gold">insider heat ${m.heat}</div>` : ''}<div class="xs mute">${esc(m.mode)} · ${ago(m.at)}</div>` : '<div class="xs mute">no data yet</div>'}<button class="sm" data-a="inspect" style="margin-top:4px">Inspect</button></td>`;
-  return `<tr data-id="${esc(p.id)}"><td><div class="b">${esc(p.nickname)}</div><div class="xs mute">seen ${ago(p.lastSeen)}</div>${p.banned ? `<span class="chip r">banned</span><div class="xs down">${esc(p.reason || '')}</div>` : ''}${p.locked ? '<span class="chip y">locked out</span>' : ''}${p.flag ? `<div style="margin-top:4px"><span class="chip r" title="${esc(p.flag.why || '')}">⚠ suspicious money</span><div class="xs down">${esc(p.flag.why || '')}</div><div class="xs mute">Hidden from the trader list and cannot send money or gifts until you clear it.</div><div style="display:flex;gap:6px;margin-top:4px"><button class="sm" data-a="clearflag">Clear flag</button><button class="sm danger" data-a="wipe">Reset to $10k</button></div></div>` : ''}</td>
-${moneyCell}<td>${status}</td>
-  <td style="min-width:230px"><div class="ctl"><span>Vol</span><input type="range" min="-2" max="2" step="0.1" value="${Math.log2(p.vol).toFixed(1)}" data-k="vol"><span class="mono" data-o="vol">${volLabel(p.vol)}</span></div>
-    <div class="ctl"><span>Luck</span><input type="range" min="-1" max="1" step="0.05" value="${p.luck}" data-k="luck"><span class="mono" data-o="luck">${p.luck > 0 ? '+' : ''}${p.luck.toFixed(2)}</span></div>
-    <div class="row2"><button class="sm gold" data-a="mods">Apply</button><button class="sm" data-a="normal">Reset to fair</button></div></td>
-  <td style="min-width:180px"><div class="row2" style="margin-top:0"><input type="number" placeholder="$ e.g. 5000 / -2500" data-k="cash" aria-label="Cash amount"><button class="sm" data-a="cash">Send</button></div><input placeholder="Message from the Market God (optional)" data-k="note" maxlength="200" aria-label="Message" style="margin-top:6px;font-size:12px">
-    <div class="row2">${p.banned ? '<button class="sm" data-a="unban">Unban</button>' : '<button class="sm danger" data-a="ban">Ban</button>'}${r ? `<button class="sm" data-a="reset" title="Delete this week's run so they can play again">Reset run</button>${r.status === 'submitted' ? '<button class="sm danger" data-a="remove">Remove score</button>' : ''}` : ''}${p.locked ? '<button class="sm" data-a="unlock">Unlock</button>' : ''}<button class="sm" data-a="pin">New PIN</button><button class="sm" data-a="wipe" title="Start this player over with $10,000">Reset to $10k</button></div></td></tr>`;
+  const notes = m ? [m.debt > 0 ? `<span class="chip r">owes sharks ${money(m.debt)}</span>` : '', m.heat >= 20 ? `<span class="chip y">insider heat ${m.heat}</span>` : ''].join('') : '';
+  const fair = Math.abs(p.vol - 1) < 1e-9 && Math.abs(p.luck) < 1e-9;
+  const head = `<tr data-id="${esc(p.id)}" class="prow${open ? ' open' : ''}">
+  <td><div class="b">${esc(p.nickname)}</div><div class="xs mute">seen ${ago(p.lastSeen)}</div>
+    <div class="chips">${p.banned ? '<span class="chip r">banned</span>' : ''}${p.locked ? '<span class="chip y">locked out</span>' : ''}${p.flag ? `<span class="chip r" title="${esc(p.flag.why || '')}">⚠ suspicious money</span>` : ''}${fair ? '' : `<span class="chip y" title="Vol ${volLabel(p.vol)}, luck ${p.luck.toFixed(2)}">rigged market</span>`}</div></td>
+  <td>${m ? `<div class="mono b">${money(m.nw)}</div><div class="xs mute">cash ${money(m.cash)} · ${esc(m.mode)} · ${ago(m.at)}</div><div class="chips">${notes}</div>` : '<div class="xs mute">no data yet</div>'}</td>
+  <td>${status}</td>
+  <td class="acts"><button class="sm" data-a="inspect">Inspect</button><button class="sm ${open ? 'primary' : ''}" data-a="manage" aria-expanded="${open}">${open ? 'Close' : 'Manage'}</button></td></tr>`;
+  if (!open) return head;
+  return head + `<tr data-id="${esc(p.id)}" class="pmanage"><td colspan="4"><div class="mgrid">
+    ${p.flag ? `<div class="mbox warn"><h3>⚠ Suspicious money</h3><div class="xs down">${esc(p.flag.why || '')}</div><div class="xs mute" style="margin:6px 0 8px">Hidden from the trader list and cannot send money or gifts until you clear it.</div><div class="row2"><button class="sm" data-a="clearflag">Clear flag</button><button class="sm danger" data-a="wipe">Reset to $10k</button></div></div>` : ''}
+    <div class="mbox"><h3>Send or take money</h3><div class="row2" style="margin-top:0"><input type="number" placeholder="$ e.g. 5000 or -2500" data-k="cash" aria-label="Cash amount"><button class="sm gold" data-a="cash">Send</button></div><input placeholder="Message from the Market God (optional)" data-k="note" maxlength="200" aria-label="Message" style="margin-top:8px"></div>
+    <div class="mbox"><h3>Their market <span class="xs mute">(secret)</span></h3><div class="ctl"><span>Vol</span><input type="range" min="-2" max="2" step="0.1" value="${Math.log2(p.vol).toFixed(1)}" data-k="vol"><span class="mono" data-o="vol">${volLabel(p.vol)}</span></div>
+      <div class="ctl"><span>Luck</span><input type="range" min="-1" max="1" step="0.05" value="${p.luck}" data-k="luck"><span class="mono" data-o="luck">${p.luck > 0 ? '+' : ''}${p.luck.toFixed(2)}</span></div>
+      <div class="row2"><button class="sm gold" data-a="mods">Apply</button><button class="sm" data-a="normal">Reset to fair</button></div></div>
+    <div class="mbox"><h3>Account</h3><div class="row2" style="margin-top:0">${p.banned ? '<button class="sm" data-a="unban">Unban</button>' : '<button class="sm danger" data-a="ban">Ban</button>'}${p.locked ? '<button class="sm" data-a="unlock">Unlock</button>' : ''}<button class="sm" data-a="pin">New PIN</button><button class="sm" data-a="wipe" title="Start this player over with $10,000">Reset to $10k</button></div>
+      ${r ? `<div class="xs mute" style="margin:10px 0 4px">This week's ranked run</div><div class="row2" style="margin-top:0"><button class="sm" data-a="reset" title="Delete this week's run so they can play again">Reset run</button>${r.status === 'submitted' ? '<button class="sm danger" data-a="remove">Remove score</button>' : ''}</div>` : ''}${p.banned && p.reason ? `<div class="xs down" style="margin-top:6px">Banned: ${esc(p.reason)}</div>` : ''}</div>
+  </div></td></tr>`;
 }
 const KINDS = [['announce', 'Announcement'], ['boom', 'Boom'], ['crash', 'Crash'], ['setprice', 'Set price']];
 const dollars = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 });
@@ -169,7 +193,7 @@ function mainView() {
   return `<header><div class="mk">⚡</div><h1>MARKET GOD</h1><span class="mute xs">MARKET MAYHEM admin</span><span class="spacer"></span>
     <input id="week" value="${esc(ST.week)}" style="width:110px" aria-label="Week"><button id="wipe-all" class="sm danger" title="Every player starts over with $10,000">Reset everyone to $10k</button><button id="market-reset" class="sm danger" title="New market for everyone: fresh stocks, every player back to $10,000, this week's events and ranked runs cleared">Reset entire market</button><button id="refresh">Refresh</button><button id="logout" class="sm">Lock</button></header>
   <main><div><div class="card"><h2>Players <span class="r">${d.players.length} players · ${sub} scores this week</span></h2>
-    <div class="tw"><table><thead><tr><th>Player</th><th>Money</th><th>This week</th><th>Their market (secret)</th><th>Actions</th></tr></thead><tbody>${ps.map(playerRow).join('') || '<tr><td colspan="5" class="empty">No players yet. Share the game link.</td></tr>'}</tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Player</th><th>Money</th><th>This week</th><th></th></tr></thead><tbody>${ps.map(playerRow).join('') || '<tr><td colspan="4" class="empty">No players yet. Share the game link.</td></tr>'}</tbody></table></div>
     <div class="xs mute" style="margin-top:8px">Vol scales how wildly their stocks move (0.25× calm to 4× chaos). Luck tilts the stocks they own: +1 drifts them up, −1 drags them down. Changes reach a player at their next game day. "Rigged" marks runs you touched; only you can see it.</div></div></div>
   <div>${godPanel()}${chalPanel()}</div></main>`;
 }
@@ -259,6 +283,7 @@ document.addEventListener('click', e => {
   if (b.id === 'ev-price-go') { const v = ST.ev; return act('event', { kind: 'setprice', ticker: v.ticker, price: Number(v.price), day: v.day, playerId: v.target || null }, `${v.ticker} set to ${dollars(v.price)}`).then(() => { ST.ev.price = ''; render(); }); }
   if (b.id === 'ev-go') { const v = ST.ev, isA = v.kind === 'announce'; return act('event', isA ? { kind: 'announce', unit: v.unit, amount: v.dir * Number(v.amt), duration: v.dur, ticker: v.ticker, speaker: v.who, headline: v.text, day: v.day, playerId: v.target || null } : { kind: v.kind, magnitude: Math.abs(v.mag) / 100, day: v.day, playerId: v.target || null }, isA ? `Announcement queued: ${v.ticker} ${v.dir > 0 ? '+' : '−'}${v.unit === 'usd' ? '$' : ''}${v.amt}${v.unit === 'usd' ? '' : '%'}` : `${v.kind} queued`).then(() => { ST.ev.text = ''; render(); }); }
   const tr = b.closest('tr'); if (!tr) return; const playerId = tr.dataset.id, a = b.dataset.a, p = ST.data.players.find(x => x.id === playerId), name = p?.nickname;
+  if (a === 'manage') { ST.open = ST.open === playerId ? null : playerId; return render(); }
   if (a === 'inspect') { return api('inspect', { playerId }).then(d => { ST.inspect = d; render(); }, e2 => toast(e2.message, 1)); }
   if (a === 'mods') return act('mods', { playerId, vol: 2 ** Number(tr.querySelector('[data-k=vol]').value), luck: Number(tr.querySelector('[data-k=luck]').value) }, `Updated ${name}'s market`);
   if (a === 'normal') return act('mods', { playerId, vol: 1, luck: 0 }, `${name} is back to a fair market`);
