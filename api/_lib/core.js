@@ -12,7 +12,7 @@ import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, rea
 const ok = body => ({ status: 200, body });
 const bad = (status, error, extra = {}) => ({ status, body: { error, ...extra } });
 const START_CASH = 1000000; // cents ($10,000)
-const BIG = Number.MAX_SAFE_INTEGER; // largest money value (cents) kept exactly, about $90 trillion
+const BIG = 1e40; // largest money value (cents) the server accepts; far beyond anything the game reaches
 // Anti-cheat limits. The career game runs in the player's browser, so its numbers are self-reported.
 const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to other players
 const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
@@ -27,7 +27,7 @@ const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obf
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
 
-function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
+function evPayload(e) { return { id: e.id, ...(e.late ? { late: true } : {}), kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
 function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...(c.note ? { note: String(c.note).slice(0, 200) } : {}) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
@@ -225,8 +225,13 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'me') { const run = await db.runFor(p.id, weekId()); return ok({ nickname: p.nickname, week: weekId(), run: run && { id: run.id, status: run.status, nw: run.final_nw && Number(run.final_nw), ret: run.ret, reason: run.reject_reason } }); }
 
   if (op === 'claim') { // career mode: money and events from the Market God reach a signed-in player without a ranked run
-    const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(weekId())]);
-    const fresh = forPlayer(evs, p.id).filter(e => Date.now() - new Date(e.created_at) < 15 * 6e4);
+    // events: everything newer than the last one this game has applied (so nothing is missed while offline or
+    // during an update); a brand-new game only gets the last 15 minutes. Older ones are marked late: they move
+    // prices but skip the cutscene and its 10-second trading pause.
+    const after = Number.isInteger(body.after) && body.after >= 0 ? body.after : null;
+    const [cash, evs] = await Promise.all([db.pendingCash(p.id), after != null ? db.eventsAfter(after) : db.events(weekId())]);
+    const fresh = forPlayer(evs, p.id).filter(e => after != null ? e.id > after : Date.now() - new Date(e.created_at) < 15 * 6e4)
+      .map(e => Date.now() - new Date(e.created_at) > 3 * 6e4 ? { ...e, late: true } : e);
     const reset = p.reset_ver || 0, gifts = await db.claimGifts(p.id);
     const gv = gifts.map(g => ({ id: g.id, item: g.item_id, paid: Number(g.paid), from: g.from }));
     const got = cash.length ? await db.claimCash(cash.map(c => c.id)) : []; // another tab may have taken some of these a moment ago
