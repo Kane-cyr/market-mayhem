@@ -26,7 +26,10 @@ export function memoryDb() {
     async deleteRun(id) { runs.delete(id); },
     async runs(week) { return [...runs.values()].filter(r => !week || r.week === week).map(clone); },
     async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
-    async claimCash(ids) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.claimed && !c.run_id) { c.claimed = true; out.push(clone(c)); } return out; }, // only rows this call flipped
+    async claimCash(ids) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.claimed && !c.run_id) { c.claimed = true; out.push(clone(c)); } return out; },
+    async ackCash(ids, pid) { for (const c of cash) if (ids.includes(c.id) && c.player_id === pid && !c.run_id) c.claimed = true; },
+    async ackGifts(ids, pid) { for (const g of gifts) if (ids.includes(g.id) && g.recipient === pid) g.claimed = true; },
+    async pendingGifts(pid) { return gifts.filter(g => g.recipient === pid && !g.claimed).map(g => ({ ...clone(g), from: players.get(g.sender)?.nickname || '?' })); }, // only rows this call flipped
     async hit(key) { hits.push({ key, at: now() }); if (hits.length > 5000) hits.splice(0, 1000); },
     async hitsSince(key, t) { return hits.filter(h => h.key === key && h.at > t).length; },
     async sentSince(pid, t) { return cash.filter(c => c.sender === pid && c.created_at > t).reduce((a, c) => a + Number(c.amount_cents), 0); },
@@ -121,12 +124,13 @@ export async function supabaseDb(url, key) {
     setLike: async (id, pid, on) => { if (on) { const { error } = await sb.from('post_likes').insert({ post_id: id, player_id: pid }); if (error) { if (error.code === '23505') return false; throw new Error(error.message); } return true; } const d = await one(sb.from('post_likes').delete().eq('post_id', id).eq('player_id', pid).select()); return !!d?.length; },
     addComment: (id, pid, body, npc) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body, npc: npc || null })),
     addGift: (a, b, item, paid) => one(sb.from('gifts').insert({ sender: a, recipient: b, item_id: item, paid })),
-    claimGifts: async pid => {
-      const want = await one(sb.from('gifts').select('id').eq('recipient', pid).eq('claimed', false).limit(50)); if (!want.length) return [];
-      const gs = await one(sb.from('gifts').update({ claimed: true }).in('id', want.map(g => g.id)).eq('claimed', false).select('*')); if (!gs.length) return [];
+    pendingGifts: async pid => {
+      const gs = await one(sb.from('gifts').select('*').eq('recipient', pid).eq('claimed', false).order('created_at').limit(50)); if (!gs.length) return [];
       const ps = await one(sb.from('players').select('id,nickname').in('id', [...new Set(gs.map(g => g.sender))])); const pm = new Map(ps.map(x => [x.id, x.nickname]));
       return gs.map(g => ({ ...g, from: pm.get(g.sender) || '?' }));
     },
+    ackCash: async (ids, pid) => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids).eq('player_id', pid).is('run_id', null).eq('claimed', false).select('id')) : [],
+    ackGifts: async (ids, pid) => ids.length ? one(sb.from('gifts').update({ claimed: true }).in('id', ids).eq('recipient', pid).eq('claimed', false).select('id')) : [],
     comments: id => one(sb.from('post_comments').select('*').eq('post_id', id).order('created_at').limit(100)),
     postStats: async (ids, me) => {
       const o = {}; if (!ids.length) return o; for (const id of ids) o[id] = { likes: 0, liked: false, comments: 0, reposts: 0 };
