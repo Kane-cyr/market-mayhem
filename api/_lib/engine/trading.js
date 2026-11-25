@@ -3,7 +3,10 @@ import { WEATHER } from './market.js';
 import { TPD } from './calendar.js';
 import { clamp, round } from './util.js';
 
-export const FEE_RATE = 0.001, MIN_FEE = 100, MAX_ORDERS = 20, MAX_SHARES = 1e12;
+export const MAX_ORDERS = 20, MAX_SHARES = Infinity; // no limit on how many shares an order can trade
+// Trading is fee-free. Runs started before that change are replayed with the old rules (see game.js).
+export const RULES = { legacyFees: false };
+const FEE_RATE = 0.001, MIN_FEE = 100;
 const SPREAD_BPS = { blue: 6, growth: 12, spec: 35 };
 
 export function createPlayer(cashCents) {
@@ -26,19 +29,21 @@ export function quote(S, ticker) {
   const w = WEATHER[S.weather.id];
   const hs = (SPREAD_BPS[c.tier] / 10000) * Math.pow(w.vol, 1.3) / 2;
   const mid = c.price * 100;
-  return { mid, bid: Math.max(1, Math.floor(mid * (1 - hs))), ask: Math.ceil(mid * (1 + hs)), halfSpread: hs, spreadBps: hs * 2e4 };
+  if (RULES.legacyFees) return { mid, bid: Math.max(1, Math.floor(mid * (1 - hs))), ask: Math.ceil(mid * (1 + hs)), halfSpread: hs, spreadBps: hs * 2e4 };
+  return { mid, bid: Math.max(1e-4, Math.floor(mid * (1 - hs) * 1e4) / 1e4), ask: Math.ceil(mid * (1 + hs) * 1e4) / 1e4, halfSpread: hs, spreadBps: hs * 2e4 };
 }
 
 function execPrice(S, c, side, shares) {
   const q = quote(S, c.ticker);
   const notional = shares * c.price;
   const adv = Math.max(c.price * c.shares * 0.003, 1e6);
-  const impact = Math.min(0.05, 0.1 * notional / adv);
+  const impact = Math.min(RULES.legacyFees ? 0.05 : 0.005, 0.1 * notional / adv);
   const hs = q.halfSpread + impact;
-  const px = side === 'buy' ? Math.ceil(q.mid * (1 + hs)) : Math.max(1, Math.floor(q.mid * (1 - hs)));
+  const px = RULES.legacyFees ? (side === 'buy' ? Math.ceil(q.mid * (1 + hs)) : Math.max(1, Math.floor(q.mid * (1 - hs))))
+    : (side === 'buy' ? Math.ceil(q.mid * (1 + hs) * 1e4) / 1e4 : Math.max(1e-4, Math.floor(q.mid * (1 - hs) * 1e4) / 1e4));
   return { px, impactBps: impact * 1e4, spreadBps: q.spreadBps };
 }
-const feeFor = gross => Math.max(MIN_FEE, Math.round(gross * FEE_RATE));
+const feeFor = gross => RULES.legacyFees ? Math.max(MIN_FEE, Math.round(gross * FEE_RATE)) : 0;
 
 export function preview(S, ticker, side, shares) {
   const c = S.companies[ticker];

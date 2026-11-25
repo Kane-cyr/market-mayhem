@@ -12,11 +12,11 @@ import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, rea
 const ok = body => ({ status: 200, body });
 const bad = (status, error, extra = {}) => ({ status, body: { error, ...extra } });
 const START_CASH = 1000000; // cents ($10,000)
-const BIG = Number.MAX_SAFE_INTEGER; // largest money value (cents) kept exactly, about $90 trillion
+const BIG = 1e40; // largest money value (cents) the server accepts; far beyond anything the game reaches
 // Anti-cheat limits. The career game runs in the player's browser, so its numbers are self-reported.
 const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to other players
 const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
-const JUMP_WINDOW = 10 * 6e4, JUMP_X = 30, JUMP_MIN = 500000000; // flag a 30x jump of over $5,000,000 inside 10 minutes
+const JUMP_X = 30, JUMP_MIN = 500000000; // backstop: a 30x jump of over $5,000,000 with no trades and nothing held
 const dollars = c => '$' + Math.round(Number(c) / 100).toLocaleString('en-US');
 // Per-IP limits on the doors people knock on: new accounts, wrong PINs (across all accounts, so one PIN cannot
 // be tried on everyone) and wrong admin passwords. IPs are hashed before they are stored.
@@ -27,7 +27,7 @@ const enc = o => Buffer.from(JSON.stringify(o)).toString('base64'); // light obf
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const startTick = (() => { const memo = {}; return w => (memo[w] ??= createWeekly(w).t); })();
 
-function evPayload(e) { return { id: e.id, kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
+function evPayload(e) { return { id: e.id, ...(e.late ? { late: true } : {}), kind: e.kind, mag: Number(e.magnitude), day: e.game_day ?? null, ticker: e.ticker || null, text: e.headline || null, who: e.speaker || null, ...(e.kind === 'setprice' ? { price: Number(e.amount) } : {}), ...(e.unit ? { unit: e.unit, amt: Number(e.amount), dur: e.duration_days ?? 0 } : {}) }; }
 function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...(c.note ? { note: String(c.note).slice(0, 200) } : {}) }; }
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const p of [run.start_payload, ...(run.issued || [])]) for (const e of p.events || []) ids.add(e.id); return ids; };
@@ -225,8 +225,13 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'me') { const run = await db.runFor(p.id, weekId()); return ok({ nickname: p.nickname, week: weekId(), run: run && { id: run.id, status: run.status, nw: run.final_nw && Number(run.final_nw), ret: run.ret, reason: run.reject_reason } }); }
 
   if (op === 'claim') { // career mode: money and events from the Market God reach a signed-in player without a ranked run
-    const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(weekId())]);
-    const fresh = forPlayer(evs, p.id).filter(e => Date.now() - new Date(e.created_at) < 15 * 6e4);
+    // events: everything newer than the last one this game has applied (so nothing is missed while offline or
+    // during an update); a brand-new game only gets the last 15 minutes. Older ones are marked late: they move
+    // prices but skip the cutscene and its 10-second trading pause.
+    const after = Number.isInteger(body.after) && body.after >= 0 ? body.after : null;
+    const [cash, evs] = await Promise.all([db.pendingCash(p.id), after != null ? db.eventsAfter(after) : db.events(weekId())]);
+    const fresh = forPlayer(evs, p.id).filter(e => after != null ? e.id > after : Date.now() - new Date(e.created_at) < 15 * 6e4)
+      .map(e => Date.now() - new Date(e.created_at) > 3 * 6e4 ? { ...e, late: true } : e);
     const reset = p.reset_ver || 0, gifts = await db.claimGifts(p.id);
     const gv = gifts.map(g => ({ id: g.id, item: g.item_id, paid: Number(g.paid), from: g.from }));
     const got = cash.length ? await db.claimCash(cash.map(c => c.id)) : []; // another tab may have taken some of these a moment ago
@@ -372,14 +377,16 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
     const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
-    let S; try { S = replayRun({ week: run.week, days: chal?.days }, actions); } catch (e) { return reject('Replay failed: ' + e.message); }
-    const nw = netWorth(S).total;
+    // runs started before trading went fee-free are checked against the old rules too
+    let S, nw; try { S = replayRun({ week: run.week, days: chal?.days }, actions); nw = netWorth(S).total; } catch (e) { S = null; nw = NaN; var replayErr = e; }
+    if (nw !== claimed) { try { const L = replayRun({ week: run.week, days: chal?.days }, actions, { legacyFees: true }), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ } }
+    if (!S) return reject('Replay failed: ' + (replayErr?.message || 'unknown'));
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
     const pays = [run.start_payload, ...(run.issued || [])], evs = await db.events(run.week);
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
-    await db.updateRun(run.id, { status: 'submitted', final_nw: nw, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
+    await db.updateRun(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));
     const out = { ok: true, nw, ret: nw / base - 1, rank: board.findIndex(r => r.id === run.id) + 1, of: board.length };
     if (run.week.startsWith(DUEL)) { const d = await db.duel(run.week.slice(DUEL.length)); if (d) out.duel = await duelView(db, d, p.id); }
@@ -398,19 +405,67 @@ const ITEM_IDS = new Set(ITEMS.map(i => i.id)), TYPES = new Set(['buy', 'sell', 
 // Flags a career upload whose net worth or cash grew faster than the game allows, after allowing for money the
 // server itself handed over (Market God, other players) and for recent Market God events that move prices.
 // A flag stays until the Market God clears it; flagged players are hidden from the trader list and cannot send.
+// Anti-cheat, judged on trades rather than on how fast someone gets rich (fast legitimate play is fine).
+// Each career upload carries the game time and the price of every stock the player trades or holds. The server
+// remembers the last price it saw for each stock in that player's market; a price that rose further than the market
+// can move in the game time that passed is flagged. Market God events and other players' pumps or rug pulls on a
+// stock skip the check for it; going back in time (a reset or an older save) starts the record afresh. A balance
+// that appears with no trades and no holdings at all (typed into the console) is flagged too.
+// MOVE_LOG: the largest real rise, as a natural log, measured in the game's own market over N game days.
+const MOVE_LOG = [[1, 1.177], [2, 1.524], [5, 2.397], [10, 3.015], [30, 4.477], [90, 8.161]]; // measured over 12 game years in 3 markets (GigaChad Coin)
+function maxRise(days) {
+  const d = Math.max(days, 1 / 6); let prev = [0, 0];
+  for (const [n, v] of MOVE_LOG) { if (d <= n) return prev[1] + (v - prev[1]) * (d - prev[0]) / (n - prev[0]); prev = [n, v]; }
+  const [n, v] = MOVE_LOG.at(-1); return v * d / n;
+}
+const allowedRise = days => maxRise(days) * 1.5 + 0.7; // generous margin: about 2x on top of the biggest real move
 async function audit(db, p, profile) {
-  const prev = p.profile?.audit || {}, now = Date.now();
-  const nw = Math.max(Number(profile.career?.nw) || 0, Number(profile.live?.mode === 'career' ? profile.live?.cash : 0) || 0);
-  const hist = (Array.isArray(prev.hist) ? prev.hist : []).filter(h => Array.isArray(h) && now - h[0] < 3 * JUMP_WINDOW);
-  if (prev.flag) return { hist: [...hist, [now, nw]].slice(-40), flag: prev.flag, last: prev.last ?? null };
-  const recent = hist.filter(h => now - h[0] < JUMP_WINDOW).map(h => h[1]);
-  const base = Math.max(START_CASH, recent.length ? Math.min(...recent) : Number(prev.last ?? p.profile?.career?.nw ?? START_CASH) || START_CASH);
-  const since = new Date(now - JUMP_WINDOW).toISOString();
-  const [credits, evs] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId())]);
-  const godMoved = forPlayer(evs, p.id).some(e => now - new Date(e.created_at) < JUMP_WINDOW + 5 * 6e4);
-  const limit = Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X;
-  const flag = !godMoved && nw > limit ? { at: new Date(now).toISOString(), from: base, to: nw, why: `Went from ${dollars(base)} to ${dollars(nw)} in under 10 minutes` } : null;
-  return { hist: [...hist, [now, nw]].slice(-40), flag, last: nw };
+  const prev = p.profile?.audit || {}, now = Date.now(), live = profile.live?.mode === 'career' ? profile.live : null;
+  const nw = Math.max(Number(profile.career?.nw) || 0, Number(live?.cash) || 0);
+  const keep = { last: nw, t: live ? Number(live.t) || 0 : prev.t ?? 0, held: !!(live && ((live.holdings || []).length || (live.shorts || []).length)), at: now };
+  if (prev.flag) return { ...prev, ...keep, flag: prev.flag };
+  if (!live) return { ...prev, ...keep };
+  const t = Number(live.t) || 0, backInTime = prev.t != null && t < Number(prev.t) - 6;
+  const prices = backInTime ? {} : { ...(prev.prices || {}) };
+  // what is new since the last upload: trades after the last game time seen, then current holdings and shorts
+  const lastT = backInTime ? -1 : Number(prev.t ?? -1);
+  const obs = [];
+  for (const tr of profile.trades || []) if (tr.mode === 'career' && Number(tr.t) >= lastT && Number(tr.t) <= t) obs.push({ tk: tr.ticker, t: Number(tr.t), px: Number(tr.price), what: tr.type });
+  for (const h of [...(live.holdings || []), ...(live.shorts || [])]) if (h && /^[A-Z]{2,5}$/.test(h.tk) && Number(h.px) > 0) obs.push({ tk: h.tk, t, px: Number(h.px), what: 'held' });
+  obs.sort((a, b) => a.t - b.t);
+  const since = new Date(Math.min(now - 15 * 6e4, Number(prev.at) || now - 15 * 6e4) - 5 * 6e4).toISOString();
+  const [credits, evs, flows] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId()), db.flowsSince(since, p.id)]);
+  const recentEvs = forPlayer(evs, p.id).filter(e => new Date(e.created_at) > new Date(since));
+  const pumped = {}; for (const f of flows) if (Number(f.frac) > 0) pumped[f.ticker] = (pumped[f.ticker] || 0) + Number(f.frac); // other players' buying pushes prices up (at most +25% per 20 s)
+  for (const k in pumped) if (pumped[k] < 0.01) delete pumped[k];
+  const marketWide = recentEvs.some(e => !e.ticker), excused = new Set([...recentEvs.filter(e => e.ticker).map(e => e.ticker), ...Object.keys(pumped)]);
+  let flag = null;
+  for (const o of obs) {
+    const ref = prices[o.tk];
+    if (ref && o.t >= ref[0] && !marketWide && !excused.has(o.tk)) {
+      const days = (o.t - ref[0]) / 6, rise = Math.log(o.px / ref[1]);
+      if (rise > allowedRise(days) && !flag) flag = { at: new Date(now).toISOString(), tk: o.tk, from: ref[1], to: o.px, days: Math.round(days * 10) / 10,
+        why: `${o.tk} ${o.what === 'held' ? 'was priced' : o.what === 'sell' || o.what === 'cover' ? 'was sold' : 'was traded'} at ${dollars(o.px)}, up from ${dollars(ref[1])} ${days < 1 ? 'the same day' : `${Math.round(days * 10) / 10} game days earlier`}. The market cannot move that fast.` };
+    }
+    if (!ref || o.t >= ref[0]) prices[o.tk] = [o.t, o.px];
+  }
+  // the whole portfolio cannot grow faster than the most volatile stock could carry it, even fully borrowed (4x)
+  const touched = new Set([...(prev.heldTk || []), ...obs.map(o => o.tk)]);
+  const godTouched = recentEvs.some(e => !e.ticker || touched.has(e.ticker)); // a Market God event moved something this player owns or trades
+  const heldExcused = godTouched;
+  const crowdGrow = Object.keys(pumped).length ? Math.pow(1.25, Math.min(90, Math.ceil((now - (Number(prev.at) || now)) / 20000) + 1)) : 1;
+  if (!flag && !backInTime && prev.t != null && prev.last != null && !marketWide && !heldExcused) {
+    const days = Math.max(0, (t - Number(prev.t)) / 6), from = Math.max(START_CASH, Number(prev.last) || 0), grow = 4 * Math.exp(allowedRise(days)) * crowdGrow;
+    if (nw > from * grow + credits * grow && nw - from > JUMP_MIN)
+      flag = { at: new Date(now).toISOString(), from, to: nw, days: Math.round(days * 10) / 10, why: `Net worth went from ${dollars(from)} to ${dollars(nw)} in ${days < 1 ? 'under a game day' : Math.round(days * 10) / 10 + ' game days'}, faster than any stock in the market could carry it.` };
+  }
+  // money out of nowhere: a big jump with no trades since the last upload and no holdings before or after
+  const base = Math.max(START_CASH, Number(prev.last) || Number(p.profile?.career?.nw) || START_CASH);
+  if (!flag && !backInTime && !godTouched && prev.t != null && !obs.some(o => o.what !== 'held') && !prev.held && !keep.held && nw > Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X)
+    flag = { at: new Date(now).toISOString(), from: base, to: nw, why: `Money went from ${dollars(base)} to ${dollars(nw)} with no trades and nothing held.` };
+  const tks = Object.keys(prices); if (tks.length > 120) for (const k of tks.sort((a, b) => prices[a][0] - prices[b][0]).slice(0, tks.length - 120)) delete prices[k];
+  const heldTk = [...new Set([...(live.holdings || []), ...(live.shorts || [])].map(h => h?.tk).filter(Boolean))].slice(0, 60);
+  return { ...keep, prices, heldTk, flag };
 }
 // The browser reports career stats; keep the ones the server can check consistent with each other.
 // Levels only ever go up in the game, so a level may rise only as far as the reported net worth allows and an
@@ -426,7 +481,7 @@ function cleanProfile(pr = {}, prev = {}) {
   const c = pr.career && typeof pr.career === 'object' ? pr.career : prev?.career || {};
   const career = { nw: int(c.nw, -BIG, BIG, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
   const trades = (Array.isArray(pr.trades) ? pr.trades : []).filter(t => t && TYPES.has(t.type) && TK.test(t.ticker)).slice(-30)
-    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e12), price: int(t.price, 1, 1e14), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -BIG, BIG) }));
+    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e300), price: int(t.price, 1, 1e300), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -BIG, BIG) }));
   return { career, trades, live: cleanLive(pr.live) ?? prev?.live ?? null };
 }
 // Private snapshot of a player's game (cash, positions, loans, insider dealing) for the admin panel only.

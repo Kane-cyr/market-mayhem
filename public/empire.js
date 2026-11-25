@@ -24,6 +24,8 @@
       look: { skin: x % 6, hair: (x >>> 3) % 8, hairCol: (x >>> 6) % 8, shirt: (x >>> 9) % 10, eyes: (x >>> 12) % 3, beard: (x >>> 14) % 4, hat: (x >>> 16) % 7 === 0 ? 1 : 0, acc: (x >>> 18) % 5, mouth: (x >>> 21) % 4, pants: (x >>> 23) % 6 } };
   }
   const value = c => Math.round(c.price * c.shares * 100);
+  // every company you own pays you a CEO salary each game week (Monday): 0.5% of what you paid for it
+  const SALARY = 0.005, salary = o => Math.round(o.paid * SALARY);
   const coValue = o => Math.max(Math.round(o.paid * 0.3), Math.round(o.rev * Math.max(o.margin, 0) * 15 * 100));
   const talks = () => (S().player.talks ||= {});
   const empire = () => (S().player.empire ||= []);
@@ -40,7 +42,11 @@
       o.rev *= 1 + o.growth / 360; o.growth = o.growth * 0.999 + 0.00004; o.margin = Math.max(-1, Math.min(0.6, o.margin + (Math.random() - 0.5) * 0.002));
     }
     p.empireWeek = (p.empireWeek || 0) + day; p.empireDays = (p.empireDays || 0) + 1;
-    if (p.empireDays >= 6) { p.notifications.push({ t: G.t, kind: p.empireWeek >= 0 ? 'fill' : 'warn', text: `Your companies ${p.empireWeek >= 0 ? 'made' : 'lost'} ${usd(Math.abs(p.empireWeek))} this week.` }); p.empireWeek = 0; p.empireDays = 0; }
+    if (Math.floor(G.t / 6) % 7 === 0) { // Monday: payday
+      const pay = p.empire.reduce((a, o) => a + salary(o), 0);
+      if (pay > 0) { p.cash += pay; for (const o of p.empire) o.salaryPaid = (o.salaryPaid || 0) + salary(o); p.notifications.push({ t: G.t, kind: 'fill', text: `💼 Payday: your CEO salary from ${p.empire.length === 1 ? p.empire[0].name : p.empire.length + ' companies'} is +${usd(pay)} this week.` }); }
+    }
+    if (p.empireDays >= 7) { p.notifications.push({ t: G.t, kind: p.empireWeek >= 0 ? 'fill' : 'warn', text: `Your companies ${p.empireWeek >= 0 ? 'made' : 'lost'} ${usd(Math.abs(p.empireWeek))} this week.` }); p.empireWeek = 0; p.empireDays = 0; }
     p.empireValue = p.empire.reduce((a, o) => a + coValue(o), 0);
   }
 
@@ -150,7 +156,7 @@
     const btn = h('button', {}, res.outcome === 'accept' ? 'Shake hands' : 'Back to the table');
     root.append(h('div', { class: 'wall' }), av, h('div', { class: 'table' }), stamp ? h('div', { class: 'stamp', style: `color:${stamp[1]};border-color:${stamp[1]}` }, stamp[0]) : null,
       h('div', { class: 'panel' }, h('div', { class: 'who' }, `${o.name.toUpperCase()} · OWNER OF ${S().companies[tk]?.name?.toUpperCase() || tk}`), h('div', { class: 'say' }, res.line),
-        res.outcome === 'accept' ? h('div', { style: 'color:#cfd2dc' }, `You paid ${usd(res.amount)}. It now pays you its profits every day.`) : null, btn));
+        res.outcome === 'accept' ? h('div', { style: 'color:#cfd2dc' }, `You paid ${usd(res.amount)}. You are the CEO now: a salary of ${usd(Math.round(res.amount * SALARY))} every Monday, plus its profits every day.`) : null, btn));
     const u = window.__mm.ui, sp = u.speed; u.speed = 0;
     btn.onclick = () => { root.remove(); u.speed = sp; draw(); };
     document.body.append(root); btn.focus();
@@ -169,7 +175,7 @@
     const head = h('div', { class: 'row' }, h('h2', {}, '🏢 Buy companies'), h('button', { onclick: close, 'aria-label': 'Close' }, '×'));
     if (!career()) return fill(box, head, h('p', {}, 'Company buyouts are for your career game. Head back to your career from the Menu.'));
     const mine = list.length ? h('div', { class: 'card' }, h('b', {}, 'Your companies'), ...list.map((o, i) => h('div', { class: 'row', style: 'margin-top:8px' },
-      h('div', {}, h('div', {}, h('b', {}, o.name), ' ', h('span', { class: 'mut' }, o.tk)), h('div', { class: 'mut' }, `Paid ${usd(o.paid)} · worth about ${usd(coValue(o))} · makes ${o.margin >= 0 ? '' : '−'}${usd(Math.abs(o.rev * o.margin / 360 * 100))} a day · earned ${usd(o.earned || 0)} so far`)),
+      h('div', {}, h('div', {}, h('b', {}, o.name), ' ', h('span', { class: 'mut' }, o.tk)), h('div', { class: 'mut' }, `Paid ${usd(o.paid)} · worth about ${usd(coValue(o))} · CEO salary ${usd(salary(o))} a week · profits ${o.margin >= 0 ? '' : '−'}${usd(Math.abs(o.rev * o.margin / 360 * 100))} a day · earned ${usd((o.earned || 0) + (o.salaryPaid || 0))} so far`)),
       h('div', { style: 'display:flex;gap:6px' }, h('button', { onclick: () => { ann = ann === i ? null : i; draw(); } }, '📢 Announce'), h('button', { onclick: () => { if (confirm(`Sell ${o.name}? Buyers pay roughly what it is worth, give or take 15%.`)) { const got = sell(i); err = got ? `Sold for ${usd(got)}.` : ''; draw(); } } }, 'Sell'), h('button', { title: 'List it on the exchange and sell to the public', onclick: () => { if (confirm(`Take ${o.name} public? You ring the bell and sell it to the market, usually for 10-40% more than it is worth.`)) { close(); window.mmScenes?.ipo(i); } } }, '🔔 IPO'))))) : null;
     if (mine && ann != null && list[ann]) {
       const o = list[ann], cos = G.order.map(t => G.companies[t]).filter(c => c?.status === 'active').sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -182,7 +188,7 @@
       mine.append(h('div', { style: 'margin-top:10px;border-top:1px solid var(--line,#232836);padding-top:10px;display:flex;flex-direction:column;gap:6px' }, h('b', {}, `📢 Announcement from ${o.name}`), kind, tgt, say, effect,
         h('div', { style: 'display:flex;justify-content:flex-end' }, h('button', { class: 'p', onclick: async () => { const r = await announce(ann, kind.value, tgt.value, say.value.trim()); err = r.error || `Announced: ${r.head}`; if (r.ok) ann = null; draw(); } }, 'Make the announcement'))));
     }
-    if (!ok) return fill(box, head, err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err' }, err) : null, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. It pays you its profits every game day.'), mine);
+    if (!ok) return fill(box, head, err ? h('div', { class: /^(Sold|Announced)/.test(err) ? 'up' : 'err' }, err) : null, h('p', {}, `Reach a net worth of ${usd(MIN_NW)} and company owners will start taking your calls. You are at ${usd(nw)}.`), h('p', { class: 'mut' }, 'Then pick any listed company, haggle over a premium to its market value, and take it private. You become its CEO: a salary every Monday plus its profits every game day.'), mine);
     const cos = G.order.map(t => G.companies[t]).filter(c => c?.status === 'active').sort((a, b) => value(a) - value(b));
     if (!pick || !G.companies[pick] || G.companies[pick].status !== 'active') pick = cos[0]?.ticker || '';
     const c = G.companies[pick], v = c ? value(c) : 0, amt = Math.round(v * (1 + prem)), o = c ? owner(pick) : null, t = talks()[pick];
