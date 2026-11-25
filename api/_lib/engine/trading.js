@@ -75,6 +75,7 @@ export function buy(S, ticker, shares, o = {}) {
 export function sell(S, ticker, shares, o = {}) {
   const p = S.player, h = p.holdings[ticker];
   if (!h) return err('You do not own this stock.');
+  if (!Number.isSafeInteger(h.shares)) return err('This holding is too large to trade precisely.');
   if (!validShares(shares)) return err('Enter a whole number of shares within the supported limit.');
   if (shares > h.shares) return err(`You only own ${h.shares} shares.`);
   const pv = preview(S, ticker, 'sell', shares);
@@ -107,7 +108,7 @@ export function placeOrder(S, o) {
   if (!validShares(o.shares)) return err('Enter a whole number of shares within the supported limit.');
   if (!(o.price > 0) || !isFinite(o.price)) return err('Enter a valid trigger price.');
   if (p.orders.length >= MAX_ORDERS) return err('You have too many open orders.');
-  if (o.side === 'sell') { const h = p.holdings[o.ticker]; const pending = p.orders.filter(x => x.ticker === o.ticker && x.side === 'sell').reduce((a, x) => a + x.shares, 0); if (!h || o.shares + pending > h.shares) return err('Those shares are not available to sell.'); }
+  if (o.side === 'sell') { const h = p.holdings[o.ticker]; if (h && !Number.isSafeInteger(h.shares)) return err('This holding is too large to trade precisely.'); const pending = p.orders.filter(x => x.ticker === o.ticker && x.side === 'sell').reduce((a, x) => a + x.shares, 0); if (!h || o.shares + pending > h.shares) return err('Those shares are not available to sell.'); }
   const order = { id: ++p.ids.order, ticker: o.ticker, side: o.side, type: o.type, shares: o.shares, price: round(o.price, 2), created: S.t, expires: S.t + TPD * 30, startPrice: c.price };
   p.orders.push(order);
   return { ok: true, order };
