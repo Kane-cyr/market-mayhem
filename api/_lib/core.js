@@ -5,7 +5,7 @@ import { netWorth } from './engine/trading.js';
 import { WEEKLY_DAYS } from './engine/game.js';
 import { ITEMS } from './engine/lifestyle.js';
 import { INFLUENCERS } from './engine/data/influencers.js';
-import { LEVELS } from './engine/progress.js';
+import { LEVELS, levelFor } from './engine/progress.js';
 import { createHash } from 'node:crypto';
 import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, readToken, adminOk } from './auth.js';
 
@@ -180,12 +180,13 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '')); if (!x || x.banned) return bad(404, 'No trader by that name.');
     const [run, followers] = await Promise.all([db.runFor(x.id, weekId()), db.followerCount(x.id)]);
     const viewer = await authPlayer(db, headers); const following = viewer ? (await db.following(viewer.id)).includes(x.id) : false;
-    const { live: _live, audit: _audit, ...pub } = x.profile || {};
+    const { live: _live, audit: _audit, ...rest } = x.profile || {}, flagged = !!x.profile?.audit?.flag && viewer?.id !== x.id; // they still see their own numbers
+    const pub = flagged ? { ...rest, career: null, trades: [], unverified: true } : rest; // flagged numbers are not shown to other players
     return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: pub, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });
   }
   if (op === 'players') { // public: trader directory
-    const ps = (await db.playersCareer()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.flag ? null : x.career?.nw ?? null, level: x.career?.level ?? 0, flex: x.career?.flex ?? 0, seen: x.last_seen }));
+    const ps = (await db.playersCareer()).filter(x => !x.banned).map(x => ({ nickname: x.nickname, avatar: x.avatar || {}, nw: x.flag ? null : x.career?.nw ?? null, level: x.flag ? 0 : x.career?.level ?? 0, flex: x.flag ? 0 : x.career?.flex ?? 0, seen: x.last_seen }));
     ps.sort((a, b) => (b.nw ?? -1) - (a.nw ?? -1)); return ok({ rows: ps.slice(0, 200) });
   }
   if (op === 'board') {
@@ -206,6 +207,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'profile') { // the game pushes your look, career snapshot and recent trades
     const avatar = cleanAvatar(body.avatar), profile = cleanProfile(body.profile, p.profile);
     if (p.profile_at && Date.now() - new Date(p.profile_at) < 15000 && !body.force) return ok({ ok: true, throttled: true });
+    profile.career = verifyCareer(profile.career, p.profile?.career);
     profile.audit = await audit(db, p, profile);
     await db.setProfile(p.id, avatar, profile); return ok({ ok: true });
   }
@@ -216,7 +218,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   }
   if (op === 'feed') { // recent trades by everyone you follow
     const ids = await db.following(p.id); const rows = [];
-    for (const id of ids.slice(0, 200)) { const x = await db.player(id); if (!x || x.banned) continue; for (const t of (x.profile?.trades || []).slice(-15)) rows.push({ ...t, nickname: x.nickname, avatar: x.avatar || {}, at: x.profile_at }); }
+    for (const id of ids.slice(0, 200)) { const x = await db.player(id); if (!x || x.banned || x.profile?.audit?.flag) continue; for (const t of (x.profile?.trades || []).slice(-15)) rows.push({ ...t, nickname: x.nickname, avatar: x.avatar || {}, at: x.profile_at }); }
     rows.sort((a, b) => (new Date(b.at) - new Date(a.at)) || (b.t - a.t)); return ok({ rows: rows.slice(0, 80), following: ids.length });
   }
   if (op === 'me') { const run = await db.runFor(p.id, weekId()); return ok({ nickname: p.nickname, week: weekId(), run: run && { id: run.id, status: run.status, nw: run.final_nw && Number(run.final_nw), ret: run.ret, reason: run.reject_reason } }); }
@@ -408,6 +410,15 @@ async function audit(db, p, profile) {
   const limit = Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X;
   const flag = !godMoved && nw > limit ? { at: new Date(now).toISOString(), from: base, to: nw, why: `Went from ${dollars(base)} to ${dollars(nw)} in under 10 minutes` } : null;
   return { hist: [...hist, [now, nw]].slice(-40), flag, last: nw };
+}
+// The browser reports career stats; keep the ones the server can check consistent with each other.
+// Levels only ever go up in the game, so a level may rise only as far as the reported net worth allows and an
+// earned level is never taken away. Flex (bragging points) is recomputed from the items owned.
+const ITEM_FLEX = new Map(ITEMS.map(i => [i.id, Number(i.flex) || 0]));
+function verifyCareer(c, prev) {
+  if (!c) return c;
+  const earned = Math.max(Number(prev?.level) || 0, levelFor(Math.max(0, Number(c.nw) || 0)));
+  return { ...c, level: Math.min(Number(c.level) || 0, earned), flex: (c.items || []).reduce((a, id) => a + (ITEM_FLEX.get(id) || 0), 0) };
 }
 function cleanProfile(pr = {}, prev = {}) {
   pr = pr || {};
