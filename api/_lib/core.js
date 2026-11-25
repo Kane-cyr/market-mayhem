@@ -377,8 +377,10 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
     const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
-    let S; try { S = replayRun({ week: run.week, days: chal?.days }, actions); } catch (e) { return reject('Replay failed: ' + e.message); }
-    const nw = netWorth(S).total;
+    // runs started before trading went fee-free are checked against the old rules too
+    let S, nw; try { S = replayRun({ week: run.week, days: chal?.days }, actions); nw = netWorth(S).total; } catch (e) { S = null; nw = NaN; var replayErr = e; }
+    if (nw !== claimed) { try { const L = replayRun({ week: run.week, days: chal?.days }, actions, { legacyFees: true }), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ } }
+    if (!S) return reject('Replay failed: ' + (replayErr?.message || 'unknown'));
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
     const pays = [run.start_payload, ...(run.issued || [])], evs = await db.events(run.week);
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
@@ -479,7 +481,7 @@ function cleanProfile(pr = {}, prev = {}) {
   const c = pr.career && typeof pr.career === 'object' ? pr.career : prev?.career || {};
   const career = { nw: int(c.nw, -BIG, BIG, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
   const trades = (Array.isArray(pr.trades) ? pr.trades : []).filter(t => t && TYPES.has(t.type) && TK.test(t.ticker)).slice(-30)
-    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e12), price: int(t.price, 1, 1e14), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -BIG, BIG) }));
+    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e300), price: int(t.price, 1, 1e300), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -BIG, BIG) }));
   return { career, trades, live: cleanLive(pr.live) ?? prev?.live ?? null };
 }
 // Private snapshot of a player's game (cash, positions, loans, insider dealing) for the admin panel only.

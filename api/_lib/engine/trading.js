@@ -3,7 +3,10 @@ import { WEATHER } from './market.js';
 import { TPD } from './calendar.js';
 import { clamp, round } from './util.js';
 
-export const FEE_RATE = 0.001, MIN_FEE = 100, MAX_ORDERS = 20, MAX_SHARES = 1e12;
+export const MAX_ORDERS = 20, MAX_SHARES = Infinity; // no limit on how many shares an order can trade
+// Trading is fee-free. Runs started before that change are replayed with the old rules (see game.js).
+export const RULES = { legacyFees: false };
+const FEE_RATE = 0.001, MIN_FEE = 100;
 const SPREAD_BPS = { blue: 6, growth: 12, spec: 35 };
 
 export function createPlayer(cashCents) {
@@ -38,7 +41,7 @@ function execPrice(S, c, side, shares) {
   const px = side === 'buy' ? Math.ceil(q.mid * (1 + hs)) : Math.max(1, Math.floor(q.mid * (1 - hs)));
   return { px, impactBps: impact * 1e4, spreadBps: q.spreadBps };
 }
-const feeFor = gross => Math.max(MIN_FEE, Math.round(gross * FEE_RATE));
+const feeFor = gross => RULES.legacyFees ? Math.max(MIN_FEE, Math.round(gross * FEE_RATE)) : 0;
 
 export function preview(S, ticker, side, shares) {
   const c = S.companies[ticker];

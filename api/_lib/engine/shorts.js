@@ -8,9 +8,10 @@ import { TPD } from './calendar.js';
 
 export const SHORT_UNLOCK_LEVEL = 1, INIT_MARGIN = 0.5, MAINT_MARGIN = 0.3, BORROW_FEE_DAY = 0.0006;
 const err = error => ({ ok: false, error });
-const validShares = n => Number.isInteger(n) && n > 0 && n <= 1e12;
+const validShares = n => Number.isInteger(n) && n > 0;
 
 export const shortsOf = S => (S.player.shorts ||= {});
+import { RULES } from './trading.js';
 export function shortValue(S) {
   let v = 0; const sh = S.player.shorts || {};
   for (const t in sh) { const c = S.companies[t]; if (c) v += Math.round(sh[t].shares * c.price * 100); }
@@ -105,6 +106,7 @@ export function marginCheck(S) {
 /** daily borrow fee, charged on the value of your shorts */
 export function shortsDaily(S) {
   const val = shortValue(S); if (!val) return;
+  if (!RULES.legacyFees) return; // no borrow fee any more
   const p = S.player, fee = Math.min(p.cash, Math.round(val * BORROW_FEE_DAY));
   if (fee > 0) { p.cash -= fee; p.fees += fee; }
 }
