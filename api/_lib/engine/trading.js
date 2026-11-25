@@ -3,7 +3,7 @@ import { WEATHER } from './market.js';
 import { TPD } from './calendar.js';
 import { clamp, round } from './util.js';
 
-export const FEE_RATE = 0.001, MIN_FEE = 100, MAX_ORDERS = 20, MAX_SHARES = 1e9;
+export const FEE_RATE = 0.001, MIN_FEE = 100, MAX_ORDERS = 20, MAX_SHARES = 1e12;
 const SPREAD_BPS = { blue: 6, growth: 12, spec: 35 };
 
 export function createPlayer(cashCents) {
