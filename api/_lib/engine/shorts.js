@@ -8,7 +8,7 @@ import { TPD } from './calendar.js';
 
 export const SHORT_UNLOCK_LEVEL = 1, INIT_MARGIN = 0.5, MAINT_MARGIN = 0.3, BORROW_FEE_DAY = 0.0006;
 const err = error => ({ ok: false, error });
-const validShares = n => Number.isInteger(n) && n > 0 && n <= 1e9;
+const validShares = n => Number.isInteger(n) && n > 0 && n <= 1e12;
 
 export const shortsOf = S => (S.player.shorts ||= {});
 export function shortValue(S) {

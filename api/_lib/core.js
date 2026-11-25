@@ -12,6 +12,7 @@ import { NICK_RE, PIN_RE, MAX_FAILS, LOCK_MIN, hashPin, checkPin, makeToken, rea
 const ok = body => ({ status: 200, body });
 const bad = (status, error, extra = {}) => ({ status, body: { error, ...extra } });
 const START_CASH = 1000000; // cents ($10,000)
+const BIG = Number.MAX_SAFE_INTEGER; // largest money value (cents) kept exactly, about $90 trillion
 // Anti-cheat limits. The career game runs in the player's browser, so its numbers are self-reported.
 const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to other players
 const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
@@ -363,7 +364,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (run.status !== 'active') return bad(409, 'This run was already submitted.');
     const actions = body.actions, claimed = Number(body.claimed);
     const reject = async reason => { await db.updateRun(run.id, { status: 'rejected', reject_reason: reason, submitted_at: new Date().toISOString(), actions: Array.isArray(actions) ? actions.slice(0, 5000) : null }); return bad(422, 'Your score could not be verified.', { reason }); };
-    if (!Array.isArray(actions) || !actions.length || actions.length > 5000) return reject('Missing or oversized action log.');
+    if (!Array.isArray(actions) || !actions.length || actions.length > 20000) return reject('Missing or oversized action log.');
     // god payloads in the log must be exactly what the server issued: the start payload first, then syncs
     const first = actions[0];
     if (!Array.isArray(first) || first[1] !== 'god' || first[0] !== startTick(run.week) || !same(first[2], run.start_payload)) return reject('Run did not start with the issued settings.');
@@ -423,9 +424,9 @@ function verifyCareer(c, prev) {
 function cleanProfile(pr = {}, prev = {}) {
   pr = pr || {};
   const c = pr.career && typeof pr.career === 'object' ? pr.career : prev?.career || {};
-  const career = { nw: int(c.nw, -1e13, 1e13, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
+  const career = { nw: int(c.nw, -BIG, BIG, 0), level: int(c.level, 0, LEVELS.length - 1), flex: int(c.flex, 0, 10000), items: (Array.isArray(c.items) ? c.items : []).filter(i => ITEM_IDS.has(i)).slice(0, 40), trades: int(c.trades, 0, 1e7), achievements: int(c.achievements, 0, 200), title: String(c.title || '').slice(0, 40) };
   const trades = (Array.isArray(pr.trades) ? pr.trades : []).filter(t => t && TYPES.has(t.type) && TK.test(t.ticker)).slice(-30)
-    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e9), price: int(t.price, 1, 1e10), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -1e13, 1e13) }));
+    .map(t => ({ type: t.type, ticker: t.ticker, shares: int(t.shares, 1, 1e12), price: int(t.price, 1, 1e14), t: int(t.t, 0, 1e7), date: String(t.date || '').slice(0, 20), mode: t.mode === 'weekly' ? 'weekly' : 'career', pnl: t.pnl == null ? null : int(t.pnl, -BIG, BIG) }));
   return { career, trades, live: cleanLive(pr.live) ?? prev?.live ?? null };
 }
 // Private snapshot of a player's game (cash, positions, loans, insider dealing) for the admin panel only.
@@ -433,7 +434,7 @@ function cleanProfile(pr = {}, prev = {}) {
 function cleanLive(x, depth = 0) {
   if (depth === 0) { if (!x || typeof x !== 'object' || Array.isArray(x)) return null; const out = cleanLive(x, 1); return JSON.stringify(out).length <= 60000 ? out : null; }
   if (x == null || typeof x === 'boolean') return x ?? null;
-  if (typeof x === 'number') return Number.isFinite(x) ? Math.max(-1e15, Math.min(1e15, x)) : null;
+  if (typeof x === 'number') return Number.isFinite(x) ? Math.max(-BIG, Math.min(BIG, x)) : null;
   if (typeof x === 'string') return x.slice(0, 80);
   if (depth > 4) return null;
   if (Array.isArray(x)) return x.slice(0, 60).map(v => cleanLive(v, depth + 1));

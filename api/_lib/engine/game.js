@@ -13,7 +13,7 @@ import * as trading from './trading.js';
 import { progressDaily, afterTrade, acceptChallenge } from './progress.js';
 import { insiderDaily, onTrade, isSuspended, buyTip, meet } from './insider.js';
 import { loansDaily, borrow, repay, sharkPay, sharkBeg } from './loans.js';
-import { marginCheck, shortsDaily, short as shortSell, cover as coverShort } from './shorts.js';
+import { shortsDaily, short as shortSell, cover as coverShort } from './shorts.js';
 import { explainMoves } from './explain.js';
 import { lifeDaily, buyItem, pawnItem, hype as hypeStock } from './lifestyle.js';
 import { hashString as hs2 } from './rng.js';
@@ -66,7 +66,6 @@ export function step(S) {
   stepMarket(S);
   const fills = trading.processOrders(S);
   if (fills.length) { afterTrade(S); for (const f of fills) onTrade(S, f.res); }
-  marginCheck(S);
   if (s === TPD - 1) dayClose(S);
 }
 
@@ -147,7 +146,7 @@ export const godSync = (S, payload) => perform(S, 'god', payload);
 
 /** Rebuild a weekly run from its starting god settings and action log. Throws on any malformed or
  * impossible log. Returns the final state; the caller compares net worth with the claimed score. */
-export function replayRun({ week, god, days }, actions, { maxActions = 5000 } = {}) {
+export function replayRun({ week, god, days }, actions, { maxActions = 20000 } = {}) {
   if (!Array.isArray(actions) || actions.length > maxActions) throw new Error('Bad action log.');
   const S = createWeekly(week); if (god) applyGod(S, god);
   if (days) S.mode.endT = S.mode.startT + days * TPD; // Market God challenges can be shorter than 24 days
