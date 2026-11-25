@@ -58,9 +58,11 @@ export function buy(S, ticker, shares, o = {}) {
   if (!pv.ok) return pv;
   if (pv.total > p.cash) return err('Not enough cash for that order.');
   const c = S.companies[ticker];
+  const existing = p.holdings[ticker];
+  const existingShares = existing?.shares || 0;
+  if (!Number.isSafeInteger(existingShares + shares)) return err('That order would exceed the maximum precisely representable share count.');
   p.cash -= pv.total; p.fees += pv.fee;
-  const h = p.holdings[ticker] || (p.holdings[ticker] = { shares: 0, cost: 0, since: S.t, emerging: c.emerging, panicBuy: false, buyPx: 0 });
-  if (!Number.isSafeInteger(h.shares + shares)) return err('That order would exceed the maximum precisely representable share count.');
+  const h = existing || (p.holdings[ticker] = { shares: 0, cost: 0, since: S.t, emerging: c.emerging, panicBuy: false, buyPx: 0 });
   h.buyPx = (h.buyPx * h.shares + pv.px * shares) / (h.shares + shares);
   h.shares += shares; h.cost += pv.gross + pv.fee;
   if (S.weather.id === 'panic' || S.weather.id === 'thunder') h.panicBuy = true;
