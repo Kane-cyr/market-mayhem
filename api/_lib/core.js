@@ -402,6 +402,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!Array.isArray(first) || first[1] !== 'god' || first[0] !== startTick(run.week) || !same(first[2], run.start_payload)) return reject('Run did not start with the issued settings.');
     const pool = (run.issued || []).map(x => x?.payload || x);
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
+    if (pool.length) return reject('A market update was not applied before the run was submitted.');
     const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
     // runs started before trading went fee-free are checked against the old rules too
