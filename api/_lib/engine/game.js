@@ -208,7 +208,7 @@ export function deserialize(str) {
   }
   ensureLife(S);
   if (!Number.isInteger(S.player.cash) || S.player.cash < 0) throw new Error('Corrupt save: invalid cash balance.');
-  for (const t in S.player.holdings) { const h = S.player.holdings[t]; if (!Number.isInteger(h.shares) || h.shares <= 0) throw new Error('Corrupt save: invalid holdings.'); }
+  for (const t in S.player.holdings) { const h = S.player.holdings[t]; if (!Number.isSafeInteger(h.shares) || h.shares <= 0) throw new Error('Corrupt save: invalid holdings.'); }
   return S;
 }
 export { trading };
