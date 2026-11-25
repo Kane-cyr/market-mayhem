@@ -5,6 +5,7 @@
 import { TPD } from './calendar.js';
 import { publishCustom } from './news.js';
 import { clamp } from './util.js';
+import { totalCap, effectiveValue } from './market.js';
 
 const CRASH = ['Mystery sell-off rips through the market', 'Panic selling hits every sector at once', 'Algorithms dump everything; nobody knows why'];
 const BOOM = ['Euphoric buying sweeps the market', 'Stocks rocket on a wave of mystery optimism', 'Everything is going up and nobody can explain it'];
@@ -24,12 +25,13 @@ export function applyGod(S, pl) {
   const start = S.mode?.startT ?? S.t;
   for (const e of pl.events || []) {
     if (g.applied.includes('e' + e.id)) continue; g.applied.push('e' + e.id);
-    const kind = ['boom', 'crash', 'announce'].includes(e.kind) ? e.kind : 'crash';
+    const kind = ['boom', 'crash', 'announce', 'setprice'].includes(e.kind) ? e.kind : 'crash';
     const mag = kind === 'announce' ? clamp(Number(e.mag) || 0, -0.4, 0.4) : clamp(Math.abs(Number(e.mag)) || 0.08, 0.01, 0.4);
     const at = e.day == null ? S.t + 1 : Math.max(S.t + 1, start + Math.max(0, e.day | 0) * TPD);
     const unit = e.unit === 'usd' || e.unit === 'pct' ? e.unit : null; // how far, and over how long, a stock is pumped (announcements only)
     const amt = unit ? clamp(Number(e.amt) || 0, unit === 'pct' ? -90 : -100000, unit === 'pct' ? 1000 : 100000) : null, dur = unit ? clamp(Math.round(Number(e.dur) || 0), 0, 24) : null;
-    (S.godEvents ||= []).push({ id: e.id, kind, mag, t: at, ticker: e.ticker ? String(e.ticker).slice(0, 8) : null, text: e.text ? String(e.text).slice(0, 160) : '', who: e.who ? String(e.who).slice(0, 40) : '', unit, amt, dur });
+    const price = kind === 'setprice' ? clamp(Number(e.price) || 0, 0.0001, 1e12) : null; // any price you like, up to a trillion dollars a share
+    (S.godEvents ||= []).push({ id: e.id, kind, mag, t: at, ticker: e.ticker ? String(e.ticker).slice(0, 8) : null, text: e.text ? String(e.text).slice(0, 160) : '', who: e.who ? String(e.who).slice(0, 40) : '', unit, amt, dur, price });
   }
 }
 
@@ -38,6 +40,15 @@ export function godTick(S) {
   if (!S.godEvents?.length) return;
   for (const e of S.godEvents) {
     if (e.done || e.t > S.t) continue; e.done = true;
+    if (e.kind === 'setprice') { // the exchange halts the stock and reopens it at exactly this price
+      const c = S.companies[e.ticker]; if (!c || c.status !== 'active') continue;
+      const capBefore = totalCap(S), ev = effectiveValue(S, c);
+      if (ev > 0 && Number.isFinite(ev)) c.fvMult = (c.fvMult || 1) * e.price / ev; // fair value follows, so the price holds
+      c.price = Math.max(0.0001, e.price); c.sentiment = 0;
+      S.idx.divisor *= totalCap(S) / capBefore; // the index does not jump because one stock was re-priced
+      publishCustom(S, { cat: 'Markets', sev: 5, status: 'confirmed', tickers: [c.ticker], source: 'The Exchange', head: `${c.name} reopens at $${e.price.toLocaleString('en-US', { maximumFractionDigits: 4 })} after an unscheduled trading halt`, body: 'The exchange halted trading and reopened the stock at a new price. Regulators declined to comment.', impact: { co: {} }, persist: 0 });
+      continue;
+    }
     if (e.kind === 'announce') {
       const c = S.companies[e.ticker]; if (!c || c.status !== 'active') continue;
       const who = e.who || 'A Very Important Person';
@@ -47,7 +58,7 @@ export function godTick(S) {
       c.buzz += 10;
       if (e.unit) { // spread the move evenly over e.dur game days
         const L = clamp(e.unit === 'usd' ? Math.log(Math.max(0.05, (c.price + e.amt) / c.price)) : Math.log(1 + e.amt / 100), Math.log(0.1), Math.log(11));
-        S.impulses.push({ t: c.ticker, rem: L, left: Math.max(1, Math.round(e.dur * TPD)), start: S.t }); c.sentiment = clamp(c.sentiment + (L > 0 ? 0.3 : -0.3), -1, 1);
+        S.impulses.push({ t: c.ticker, rem: L, left: Math.max(1, Math.round(e.dur * TPD)), start: S.t + 1 }); // starts next tick: a window to trade c.sentiment = clamp(c.sentiment + (L > 0 ? 0.3 : -0.3), -1, 1);
       }
       continue;
     }

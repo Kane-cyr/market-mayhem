@@ -27,7 +27,7 @@
   #mmd-back.on{display:flex}
   #mmd{width:min(520px,100%);background:var(--panel,#161a25);color:var(--text,#d1d4dc);border:1px solid var(--line2,#2f3545);border-radius:12px;padding:16px;font:14px/1.45 system-ui,sans-serif}
   #mmd h2{margin:0 0 4px;font-size:18px}#mmd .sub{color:var(--mute,#8a8fa0);font-size:12px;margin-bottom:12px}
-  #mmd .row{display:flex;gap:8px;margin-bottom:12px}
+  #mmd .row{display:flex;gap:8px;margin-bottom:12px;height:auto;cursor:auto;border-left:0}
   #mmd input{flex:1;min-width:0;background:var(--bg,#0f121a);color:inherit;border:1px solid var(--line2,#2f3545);border-radius:8px;padding:8px 10px;font:inherit}
   #mmd button{cursor:pointer;border:1px solid var(--line2,#2f3545);background:transparent;color:inherit;border-radius:8px;padding:7px 12px;font:inherit}
   #mmd button.p{background:#2962ff;border-color:#2962ff;color:#fff}#mmd button.g{background:#089981;border-color:#089981;color:#fff}
@@ -46,12 +46,12 @@
   back.addEventListener('mousedown', e => { if (e.target === back) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && back.classList.contains('on')) close(); });
 
-  let duels = [], err = '', busy = false;
+  let duels = [], chals = [], err = '', busy = false;
   const close = () => back.classList.remove('on');
 
   async function load() {
     if (!token()) { duels = []; return; }
-    try { duels = (await api('duels')).duels; } catch (e) { err = e.message; }
+    try { [duels, chals] = await Promise.all([api('duels').then(r => r.duels), api('challenges').then(r => r.challenges).catch(() => [])]); } catch (e) { err = e.message; }
   }
   async function act(op, body, after) {
     if (busy) return; busy = true; err = ''; draw();
@@ -82,6 +82,20 @@
       acts.length ? el('div', { class: 'acts' }, acts) : null);
   }
 
+  const usd = c => '$' + Math.round(c / 100).toLocaleString('en-US');
+  function chalCard(c) {
+    const mine = c.rows.find(r => r.me) || { state: 'waiting' }, least = c.goal === 'least';
+    const btn = mine.state === 'waiting' || mine.state === 'playing'
+      ? el('button', { class: 'p', onclick: () => { if (!window.__mm?.startChallenge) return; close(); window.__mm.startChallenge(c.id); } }, mine.state === 'playing' ? 'Resume' : 'Play now') : null;
+    return el('div', { class: 'mmc', style: 'border-color:#f7a60066' },
+      el('div', { class: 'mmt' }, el('span', { class: 'vs' }, '⚡ ' + c.title), el('span', { class: 'mut' }, c.days + ' game day' + (c.days === 1 ? '' : 's'))),
+      el('div', { class: 'mut' }, `Start with ${usd(c.startCash)}. ${least ? 'Finish with the LEAST money to win.' : 'Finish with the MOST money to win.'}${c.prize ? ' Prize: ' + usd(c.prize) + '.' : ''}`),
+      el('div', { style: 'margin-top:6px;font-size:13px' }, ...c.rows.slice(0, 6).map((r, i) => el('div', { style: 'display:flex;justify-content:space-between;gap:8px' + (r.me ? ';font-weight:700' : '') },
+        el('span', {}, (r.nw != null ? '#' + (i + 1) + ' ' : '') + r.nickname + (r.me ? ' (you)' : '')),
+        el('span', { class: 'mut' }, r.nw != null ? usd(r.nw) : r.state === 'playing' ? 'playing' : r.state === 'void' ? 'not accepted' : 'not started')))),
+      btn ? el('div', { class: 'acts' }, btn) : el('div', { class: 'mut', style: 'margin-top:6px' }, mine.state === 'done' ? 'Your run is in. Results are final when the Market God ends the challenge.' : ''));
+  }
+
   let nickInput;
   function draw() {
     const signed = !!token();
@@ -94,6 +108,7 @@
         el('button', { class: 'p', disabled: busy ? '' : null, onclick: () => { const nick = nickInput.value.trim(); if (!nick) return; act('duel_create', { nick }, () => { nickInput.value = ''; }); } }, 'Challenge'))
         : el('div', { class: 'mmc' }, 'Sign in from the Menu to challenge other traders.'),
       err ? el('div', { class: 'err' }, err) : null,
+      ...(signed && chals.length ? [el('div', { class: 'vs', style: 'margin:4px 0 8px' }, '⚡ Market God challenges'), ...chals.map(chalCard), el('div', { class: 'vs', style: 'margin:14px 0 8px' }, '⚔ Your duels')] : []),
       ...(signed ? (duels.length ? duels.map(card) : [el('div', { class: 'mut' }, 'No duels yet. Type a username above, or open a trader from the leaderboard and press Challenge.')]) : []),
     ].filter(Boolean));
     if (signed && !draw.names) { draw.names = []; api('players', {}, true).then(r => { draw.names = r.rows.map(x => x.nickname).filter(n => n.toLowerCase() !== me().toLowerCase()); const l = document.getElementById('mmd-list'); if (l) l.replaceChildren(...draw.names.map(n => el('option', { value: n }))); }).catch(() => {}); }
@@ -116,10 +131,13 @@
   async function poll() {
     if (!token() || document.visibilityState !== 'visible') return;
     try {
+      const cs = await api('challenges').then(r => r.challenges).catch(() => []);
+      for (const c of cs) if (!known?.has('c' + c.id) && (c.rows.find(r => r.me) || {}).state === 'waiting') toast('⚡ The Market God has a challenge for you: ' + c.title);
+      chals = cs;
       const ds = (await api('duels')).duels, inc = new Set(ds.filter(d => d.status === 'pending' && !d.mine).map(d => d.id));
       if (known) for (const d of ds) if (inc.has(d.id) && !known.has(d.id)) toast('⚔ ' + d.opponent + ' challenged you to a 1v1');
       for (const d of ds) if (known && d.status === 'active' && d.mine && !known.has('a' + d.id) && d.me.state === 'waiting') toast('⚔ ' + d.opponent + ' accepted your duel');
-      known = new Set([...inc, ...ds.filter(d => d.status === 'active').map(d => 'a' + d.id)]);
+      known = new Set([...inc, ...ds.filter(d => d.status === 'active').map(d => 'a' + d.id), ...cs.map(c => 'c' + c.id)]);
       duels = ds; if (back.classList.contains('on')) draw();
     } catch { /* offline or signed out */ }
   }
