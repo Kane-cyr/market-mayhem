@@ -207,7 +207,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
 
   if (op === 'profile') { // the game pushes your look, career snapshot and recent trades
     const avatar = cleanAvatar(body.avatar), profile = cleanProfile(body.profile, p.profile);
-    if (p.profile_at && Date.now() - new Date(p.profile_at) < 15000 && !body.force) return ok({ ok: true, throttled: true });
+    if (p.profile_at && Date.now() - new Date(p.profile_at) < 15000 && !body.force) return ok({ ok: true, throttled: true, retryAfter: Math.max(1000, 15000 - (Date.now() - new Date(p.profile_at))) });
     profile.career = verifyCareer(profile.career, p.profile?.career);
     profile.audit = await audit(db, p, profile);
     await db.setProfile(p.id, avatar, profile); return ok({ ok: true });
