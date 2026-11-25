@@ -224,6 +224,14 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   }
   if (op === 'me') { const run = await db.runFor(p.id, weekId()); return ok({ nickname: p.nickname, week: weekId(), run: run && { id: run.id, status: run.status, nw: run.final_nw && Number(run.final_nw), ret: run.ret, reason: run.reject_reason } }); }
 
+  if (op === 'ack') {
+    const cashIds = Array.isArray(body.cashIds) ? body.cashIds.filter(Number.isSafeInteger).slice(0, 100) : [];
+    const giftIds = Array.isArray(body.giftIds) ? body.giftIds.filter(Number.isSafeInteger).slice(0, 100) : [];
+    if (cashIds.length) await db.ackCash(cashIds, p.id);
+    if (giftIds.length) await db.ackGifts(giftIds, p.id);
+    return ok({ ok: true });
+  }
+
   if (op === 'claim') { // career mode: money and events from the Market God reach a signed-in player without a ranked run
     // events: everything newer than the last one this game has applied (so nothing is missed while offline or
     // during an update); a brand-new game only gets the last 15 minutes. Older ones are marked late: they move
@@ -232,11 +240,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const [cash, evs] = await Promise.all([db.pendingCash(p.id), after != null ? db.eventsAfter(after) : db.events(weekId())]);
     const fresh = forPlayer(evs, p.id).filter(e => after != null ? e.id > after : Date.now() - new Date(e.created_at) < 15 * 6e4)
       .map(e => Date.now() - new Date(e.created_at) > 3 * 6e4 ? { ...e, late: true } : e);
-    const reset = p.reset_ver || 0, gifts = await db.claimGifts(p.id);
+    const reset = p.reset_ver || 0, gifts = await db.pendingGifts(p.id);
     const gv = gifts.map(g => ({ id: g.id, item: g.item_id, paid: Number(g.paid), from: g.from }));
-    const got = cash.length ? await db.claimCash(cash.map(c => c.id)) : []; // another tab may have taken some of these a moment ago
-    if (!got.length && !fresh.length) return ok({ none: true, reset, gifts: gv });
-    return ok({ reset, gifts: gv, cfg: enc({ cash: got.map(cashPayload), events: fresh.map(evPayload) }) });
+    // Keep rewards pending until the client has applied them and persisted its save.
+    if (!cash.length && !fresh.length && !gv.length) return ok({ none: true, reset, gifts: [] });
+    return ok({ reset, gifts: gv, ...(cash.length || fresh.length ? { cfg: enc({ cash: cash.map(cashPayload), events: fresh.map(evPayload) }) } : {}) });
   }
 
   if (op === 'duels' || op === 'duel_create' || op === 'duel_accept' || op === 'duel_decline') return handleDuel(db, p, op, body);
