@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "skills": {
+    "testing-api-security-with-owasp-top-10": {
+      "source": "mukul975/Anthropic-Cybersecurity-Skills",
+      "commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+      "sourceType": "github",
+      "skillPath": "skills/testing-api-security-with-owasp-top-10/SKILL.md",
+      "computedHash": "c0030a3bcc9af8bbc9c9c3413fa20455531d890f7ef67b8e16ef541c288b451d"
+    },
+    "testing-for-broken-access-control": {
+      "source": "mukul975/Anthropic-Cybersecurity-Skills",
+      "commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+      "sourceType": "github",
+      "skillPath": "skills/testing-for-broken-access-control/SKILL.md",
+      "computedHash": "ab89fc8740ce5bb7ea91100aa1cee290c4e8af0d2be73b1fd734baa6428c4adf"
+    },
+    "testing-for-business-logic-vulnerabilities": {
+      "source": "mukul975/Anthropic-Cybersecurity-Skills",
+      "commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+      "sourceType": "github",
+      "skillPath": "skills/testing-for-business-logic-vulnerabilities/SKILL.md",
+      "computedHash": "eb35f14705452c88792f60b24ccba4a761dc4924a85099b06687174d500065a6"
+    }
+  }
+}

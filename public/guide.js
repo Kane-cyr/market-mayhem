@@ -35,10 +35,15 @@
     { icon: '🦈', title: 'Loan sharks',
       body: ['Need more firepower? **Loan sharks** will lend you money, no questions asked. It is fast cash at ridiculous interest.',
         '**Vinnie** is slow and steady at about 1.5% a day. **Big Tony** charges 3% a day for 10 days. **Knuckles & Sons** will lend you three times your net worth at 6% a day, and you have six days to pay.',
-        'Miss the deadline and the collectors come round. They take your toys first, for about a third of what you paid, and the sharks stop lending to you for a while. Borrowing multiplies your wins and your losses, so be careful.'] },
+        'Put your toys up as **collateral** (watches, yachts, houses) and they will lend you more. Miss the deadline and the shark bursts into your office: pay on the spot, or beg for two more days at 30% extra, but they only listen twice.',
+        'Ignore them and they keep your collateral and still take every cent you owe, then the sharks stop lending to you for a while. Borrowing multiplies your wins and your losses, so be careful.'] },
     { icon: '🕶️', title: 'The insider network and the good life',
       body: ['Make your first trade and someone will find you. The **Insider network** passes you tips. They are illegal and risky: tips can be wrong, and the Securities Commission is watching for people who trade on them.',
         'Got money? **Lifestyle** lets you buy toys, from watches to yachts. They raise your flex score and show up in your office for visitors to see. In a pinch you can pawn them again.'] },
+    { icon: '🏢', title: 'Companies, the feed and your phone',
+      body: ['Once you are worth **$100 million** you can buy whole companies: haggle with the owner, take it private, and it pays you its profits every day. Owners can make announcements that move the market, if they have earned them.',
+        'The **feed** (📣) is where traders post. Tag a stock with $ or an influencer with @, like, repost and comment. Real players\' trades and posts push prices for everyone else, so crowds can pump a stock and dump it.',
+        'Your **phone** (💬) lets you message other players, send money and gifts, share tips, and text the loan sharks and insiders. The 📜 button shows your full trading history.'] },
     { icon: '🏆', title: 'Levels, achievements and challenges',
       body: ['Your net worth sets your level, from **Unknown Retail Investor** all the way up to **Market Legend**. Each level unlocks something new: research reports, analytics, archives and more.',
         'Collect **achievements** for milestones, and take on **challenges** once you reach Rising Trader.',
@@ -56,7 +61,7 @@
   #mmg-back{position:fixed;inset:0;z-index:9300;background:rgba(5,8,14,.82);display:none;align-items:center;justify-content:center;padding:12px;overflow:auto}
   #mmg-back.on{display:flex}
   #mmg{width:min(560px,100%);background:var(--panel,#161a25);color:var(--text,#d1d4dc);border:1px solid var(--line2,#2f3545);border-radius:14px;padding:22px 22px 16px;font:15px/1.55 system-ui,sans-serif;box-shadow:0 20px 60px #000a}
-  #mmg .gic{font-size:40px;line-height:1}#mmg h2{margin:8px 0 10px;font-size:22px}
+  #mmg .gic{font-size:40px;line-height:1.15}#mmg h2{margin:8px 0 10px;font-size:22px}
   #mmg p{margin:0 0 10px;color:var(--dim,#b4b8c4)}#mmg p b{color:var(--text,#fff)}
   #mmg .gdots{display:flex;gap:6px;justify-content:center;margin:12px 0}
   #mmg .gdots i{width:8px;height:8px;border-radius:50%;background:var(--line2,#2f3545)}#mmg .gdots i.on{background:#2962ff}
