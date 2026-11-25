@@ -16,7 +16,7 @@ const BIG = Number.MAX_SAFE_INTEGER; // largest money value (cents) kept exactly
 // Anti-cheat limits. The career game runs in the player's browser, so its numbers are self-reported.
 const SEND_DAY_CAP = 100000000;              // $1,000,000 a day can be sent to other players
 const GIFT_DAY_CAP = 5;                      // gifts a day, and each item at most once a day
-const JUMP_WINDOW = 10 * 6e4, JUMP_X = 30, JUMP_MIN = 500000000; // flag a 30x jump of over $5,000,000 inside 10 minutes
+const JUMP_X = 30, JUMP_MIN = 500000000; // backstop: a 30x jump of over $5,000,000 with no trades and nothing held
 const dollars = c => '$' + Math.round(Number(c) / 100).toLocaleString('en-US');
 // Per-IP limits on the doors people knock on: new accounts, wrong PINs (across all accounts, so one PIN cannot
 // be tried on everyone) and wrong admin passwords. IPs are hashed before they are stored.
@@ -398,19 +398,61 @@ const ITEM_IDS = new Set(ITEMS.map(i => i.id)), TYPES = new Set(['buy', 'sell', 
 // Flags a career upload whose net worth or cash grew faster than the game allows, after allowing for money the
 // server itself handed over (Market God, other players) and for recent Market God events that move prices.
 // A flag stays until the Market God clears it; flagged players are hidden from the trader list and cannot send.
+// Anti-cheat, judged on trades rather than on how fast someone gets rich (fast legitimate play is fine).
+// Each career upload carries the game time and the price of every stock the player trades or holds. The server
+// remembers the last price it saw for each stock in that player's market; a price that rose further than the market
+// can move in the game time that passed is flagged. Market God events and other players' pumps or rug pulls on a
+// stock skip the check for it; going back in time (a reset or an older save) starts the record afresh. A balance
+// that appears with no trades and no holdings at all (typed into the console) is flagged too.
+// MOVE_LOG: the largest real rise, as a natural log, measured in the game's own market over N game days.
+const MOVE_LOG = [[1, 1.177], [2, 1.524], [5, 2.397], [10, 3.015], [30, 4.477], [90, 8.161]]; // measured over 12 game years in 3 markets (GigaChad Coin)
+function maxRise(days) {
+  const d = Math.max(days, 1 / 6); let prev = [0, 0];
+  for (const [n, v] of MOVE_LOG) { if (d <= n) return prev[1] + (v - prev[1]) * (d - prev[0]) / (n - prev[0]); prev = [n, v]; }
+  const [n, v] = MOVE_LOG.at(-1); return v * d / n;
+}
+const allowedRise = days => maxRise(days) * 1.5 + 0.7; // generous margin: about 2x on top of the biggest real move
 async function audit(db, p, profile) {
-  const prev = p.profile?.audit || {}, now = Date.now();
-  const nw = Math.max(Number(profile.career?.nw) || 0, Number(profile.live?.mode === 'career' ? profile.live?.cash : 0) || 0);
-  const hist = (Array.isArray(prev.hist) ? prev.hist : []).filter(h => Array.isArray(h) && now - h[0] < 3 * JUMP_WINDOW);
-  if (prev.flag) return { hist: [...hist, [now, nw]].slice(-40), flag: prev.flag, last: prev.last ?? null };
-  const recent = hist.filter(h => now - h[0] < JUMP_WINDOW).map(h => h[1]);
-  const base = Math.max(START_CASH, recent.length ? Math.min(...recent) : Number(prev.last ?? p.profile?.career?.nw ?? START_CASH) || START_CASH);
-  const since = new Date(now - JUMP_WINDOW).toISOString();
-  const [credits, evs] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId())]);
-  const godMoved = forPlayer(evs, p.id).some(e => now - new Date(e.created_at) < JUMP_WINDOW + 5 * 6e4);
-  const limit = Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X;
-  const flag = !godMoved && nw > limit ? { at: new Date(now).toISOString(), from: base, to: nw, why: `Went from ${dollars(base)} to ${dollars(nw)} in under 10 minutes` } : null;
-  return { hist: [...hist, [now, nw]].slice(-40), flag, last: nw };
+  const prev = p.profile?.audit || {}, now = Date.now(), live = profile.live?.mode === 'career' ? profile.live : null;
+  const nw = Math.max(Number(profile.career?.nw) || 0, Number(live?.cash) || 0);
+  const keep = { last: nw, t: live ? Number(live.t) || 0 : prev.t ?? 0, held: !!(live && ((live.holdings || []).length || (live.shorts || []).length)), at: now };
+  if (prev.flag) return { ...prev, ...keep, flag: prev.flag };
+  if (!live) return { ...prev, ...keep };
+  const t = Number(live.t) || 0, backInTime = prev.t != null && t < Number(prev.t) - 6;
+  const prices = backInTime ? {} : { ...(prev.prices || {}) };
+  // what is new since the last upload: trades after the last game time seen, then current holdings and shorts
+  const lastT = backInTime ? -1 : Number(prev.t ?? -1);
+  const obs = [];
+  for (const tr of profile.trades || []) if (tr.mode === 'career' && Number(tr.t) >= lastT && Number(tr.t) <= t) obs.push({ tk: tr.ticker, t: Number(tr.t), px: Number(tr.price), what: tr.type });
+  for (const h of [...(live.holdings || []), ...(live.shorts || [])]) if (h && /^[A-Z]{2,5}$/.test(h.tk) && Number(h.px) > 0) obs.push({ tk: h.tk, t, px: Number(h.px), what: 'held' });
+  obs.sort((a, b) => a.t - b.t);
+  const since = new Date(Math.min(now - 15 * 6e4, Number(prev.at) || now - 15 * 6e4) - 5 * 6e4).toISOString();
+  const [credits, evs, flows] = await Promise.all([db.creditsSince(p.id, since), db.events(weekId()), db.flowsSince(since, p.id)]);
+  const recentEvs = forPlayer(evs, p.id).filter(e => new Date(e.created_at) > new Date(since));
+  const marketWide = recentEvs.some(e => !e.ticker), excused = new Set([...recentEvs.filter(e => e.ticker).map(e => e.ticker), ...flows.filter(f => Math.abs(Number(f.frac)) >= 0.2).map(f => f.ticker)]);
+  let flag = null;
+  for (const o of obs) {
+    const ref = prices[o.tk];
+    if (ref && o.t >= ref[0] && !marketWide && !excused.has(o.tk)) {
+      const days = (o.t - ref[0]) / 6, rise = Math.log(o.px / ref[1]);
+      if (rise > allowedRise(days) && !flag) flag = { at: new Date(now).toISOString(), tk: o.tk, from: ref[1], to: o.px, days: Math.round(days * 10) / 10,
+        why: `${o.tk} ${o.what === 'held' ? 'was priced' : o.what === 'sell' || o.what === 'cover' ? 'was sold' : 'was traded'} at ${dollars(o.px)}, up from ${dollars(ref[1])} ${days < 1 ? 'the same day' : `${Math.round(days * 10) / 10} game days earlier`}. The market cannot move that fast.` };
+    }
+    if (!ref || o.t >= ref[0]) prices[o.tk] = [o.t, o.px];
+  }
+  // the whole portfolio cannot grow faster than the most volatile stock could carry it, even fully borrowed (4x)
+  const heldExcused = [...(live.holdings || []), ...(live.shorts || [])].some(h => excused.has(h?.tk));
+  if (!flag && !backInTime && prev.t != null && prev.last != null && !marketWide && !heldExcused) {
+    const days = Math.max(0, (t - Number(prev.t)) / 6), from = Math.max(START_CASH, Number(prev.last) || 0), grow = 4 * Math.exp(allowedRise(days));
+    if (nw > from * grow + credits * grow && nw - from > JUMP_MIN)
+      flag = { at: new Date(now).toISOString(), from, to: nw, days: Math.round(days * 10) / 10, why: `Net worth went from ${dollars(from)} to ${dollars(nw)} in ${days < 1 ? 'under a game day' : Math.round(days * 10) / 10 + ' game days'}, faster than any stock in the market could carry it.` };
+  }
+  // money out of nowhere: a big jump with no trades since the last upload and no holdings before or after
+  const base = Math.max(START_CASH, Number(prev.last) || Number(p.profile?.career?.nw) || START_CASH);
+  if (!flag && !backInTime && prev.t != null && !obs.some(o => o.what !== 'held') && !prev.held && !keep.held && nw > Math.max(base * JUMP_X, base + JUMP_MIN) + credits * JUMP_X)
+    flag = { at: new Date(now).toISOString(), from: base, to: nw, why: `Money went from ${dollars(base)} to ${dollars(nw)} with no trades and nothing held.` };
+  const tks = Object.keys(prices); if (tks.length > 120) for (const k of tks.sort((a, b) => prices[a][0] - prices[b][0]).slice(0, tks.length - 120)) delete prices[k];
+  return { ...keep, prices, flag };
 }
 // The browser reports career stats; keep the ones the server can check consistent with each other.
 // Levels only ever go up in the game, so a level may rise only as far as the reported net worth allows and an
