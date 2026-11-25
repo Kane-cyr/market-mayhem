@@ -3,7 +3,7 @@ import { WEATHER } from './market.js';
 import { TPD } from './calendar.js';
 import { clamp, round } from './util.js';
 
-export const MAX_ORDERS = 20, MAX_SHARES = Infinity; // no limit on how many shares an order can trade
+export const MAX_ORDERS = 20, MAX_SHARES = Number.MAX_SAFE_INTEGER; // keep share counts exact in JavaScript
 // Trading is fee-free. Runs started before that change are replayed with the old rules (see game.js).
 export const RULES = { legacyFees: false };
 const FEE_RATE = 0.001, MIN_FEE = 100;
@@ -20,7 +20,7 @@ export function createPlayer(cashCents) {
   };
 }
 
-const validShares = n => Number.isInteger(n) && n > 0 && n <= MAX_SHARES;
+const validShares = n => Number.isSafeInteger(n) && n > 0 && n <= MAX_SHARES;
 const err = error => ({ ok: false, error });
 
 export function quote(S, ticker) {
@@ -48,7 +48,7 @@ const feeFor = gross => RULES.legacyFees ? Math.max(MIN_FEE, Math.round(gross * 
 export function preview(S, ticker, side, shares) {
   const c = S.companies[ticker];
   if (!c || c.status !== 'active') return err('This stock is not currently tradable.');
-  if (!validShares(shares)) return err('Enter a whole number of shares (at least 1).');
+  if (!validShares(shares)) return err('Enter a whole number of shares within the supported limit.');
   const e = execPrice(S, c, side, shares); const gross = e.px * shares; const fee = feeFor(gross);
   return { ok: true, px: e.px, gross, fee, total: side === 'buy' ? gross + fee : gross - fee, impactBps: e.impactBps, spreadBps: e.spreadBps };
 }
@@ -60,6 +60,7 @@ export function buy(S, ticker, shares, o = {}) {
   const c = S.companies[ticker];
   p.cash -= pv.total; p.fees += pv.fee;
   const h = p.holdings[ticker] || (p.holdings[ticker] = { shares: 0, cost: 0, since: S.t, emerging: c.emerging, panicBuy: false, buyPx: 0 });
+  if (!Number.isSafeInteger(h.shares + shares)) return err('That order would exceed the maximum precisely representable share count.');
   h.buyPx = (h.buyPx * h.shares + pv.px * shares) / (h.shares + shares);
   h.shares += shares; h.cost += pv.gross + pv.fee;
   if (S.weather.id === 'panic' || S.weather.id === 'thunder') h.panicBuy = true;
@@ -72,7 +73,7 @@ export function buy(S, ticker, shares, o = {}) {
 export function sell(S, ticker, shares, o = {}) {
   const p = S.player, h = p.holdings[ticker];
   if (!h) return err('You do not own this stock.');
-  if (!validShares(shares)) return err('Enter a whole number of shares (at least 1).');
+  if (!validShares(shares)) return err('Enter a whole number of shares within the supported limit.');
   if (shares > h.shares) return err(`You only own ${h.shares} shares.`);
   const pv = preview(S, ticker, 'sell', shares);
   if (!pv.ok) return pv;
@@ -101,7 +102,7 @@ export function placeOrder(S, o) {
   const p = S.player; const c = S.companies[o.ticker];
   if (!c || c.status !== 'active') return err('This stock is not currently tradable.');
   if (!['buy', 'sell'].includes(o.side) || !['limit', 'stop'].includes(o.type)) return err('Invalid order type.');
-  if (!validShares(o.shares)) return err('Enter a whole number of shares (at least 1).');
+  if (!validShares(o.shares)) return err('Enter a whole number of shares within the supported limit.');
   if (!(o.price > 0) || !isFinite(o.price)) return err('Enter a valid trigger price.');
   if (p.orders.length >= MAX_ORDERS) return err('You have too many open orders.');
   if (o.side === 'sell') { const h = p.holdings[o.ticker]; const pending = p.orders.filter(x => x.ticker === o.ticker && x.side === 'sell').reduce((a, x) => a + x.shares, 0); if (!h || o.shares + pending > h.shares) return err('Those shares are not available to sell.'); }
