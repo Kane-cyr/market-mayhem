@@ -47,7 +47,7 @@ export function effectiveValue(state, c) {
     + (L.th.AI || 0) * cum.AIF + (L.th.GREEN || 0) * cum.GREENF + (cum.S[c.sector] || 0) + c.info;
   let prem = 0;
   for (const k in L.th) prem += L.th[k] * Math.log(state.premium[k] || 1);
-  return c.fv * Math.exp(adj + prem);
+  return c.fv * (c.fvMult || 1) * Math.exp(adj + prem); // fvMult: set when the Market God fixes a share price, so fair value follows it
 }
 
 export function brandFor(def) {

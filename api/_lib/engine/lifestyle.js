@@ -32,16 +32,18 @@ export function buyItem(S, id) {
 }
 export function pawnItem(S, uid) {
   const L = ensureLife(S), p = S.player, k = L.owned.findIndex(o => o.uid === uid); if (k < 0) return err('You do not own that.');
-  const o = L.owned[k], got = Math.round(o.paid * PAWN); L.owned.splice(k, 1); p.cash += got;
+  const o = L.owned[k]; if (o.pledged) return err('That is pledged to a loan shark. Pay the loan off first.');
+  const got = Math.round(o.paid * PAWN); L.owned.splice(k, 1); p.cash += got;
   L.followers = Math.max(50, Math.round(L.followers * 0.97));
   return { ok: true, got, item: ITEMS.find(i => i.id === o.id) };
 }
 /** collectors take toys first (most expensive first) at a terrible valuation */
-export function seizeItems(S, need) {
+export function seizeItems(S, need, loanId) {
   const L = S.player.life; if (!L || !L.owned.length || need <= 0) return { raised: 0, items: [] };
   let raised = 0; const items = [];
-  for (const o of [...L.owned].sort((a, b) => b.paid - a.paid)) {
-    if (raised >= need) break; raised += Math.round(o.paid * SEIZE); items.push(ITEMS.find(i => i.id === o.id)?.name);
+  // collateral pledged against this loan goes first, and all of it goes; then the priciest other toys
+  for (const o of [...L.owned].sort((a, b) => (loanId && b.pledged === loanId) - (loanId && a.pledged === loanId) || b.paid - a.paid)) {
+    if (raised >= need && !(loanId && o.pledged === loanId)) break; raised += Math.round(o.paid * SEIZE); items.push(ITEMS.find(i => i.id === o.id)?.name);
     L.owned = L.owned.filter(x => x !== o);
   }
   return { raised, items };
