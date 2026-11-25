@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryDb } from '../api/_lib/db.js';
+import { handleGame } from '../api/_lib/core.js';
+import { makeToken } from '../api/_lib/auth.js';
 
 test('cash remains pending until the owning player acknowledges it', async () => {
   const db = memoryDb();
@@ -37,9 +39,6 @@ test('gifts remain pending until the recipient acknowledges them', async () => {
   await db.ackGifts([pending[0].id], recipient.id);
   assert.equal((await db.pendingGifts(recipient.id)).length, 0);
 });
-
-import { handleGame } from '../api/_lib/core.js';
-import { makeToken } from '../api/_lib/auth.js';
 
 test('ranked sync payloads are resent until the client acknowledges them', async () => {
   const db = memoryDb();
