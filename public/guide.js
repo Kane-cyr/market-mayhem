@@ -41,7 +41,7 @@
       body: ['Make your first trade and someone will find you. The **Insider network** passes you tips. They are illegal and risky: tips can be wrong, and the Securities Commission is watching for people who trade on them.',
         'Got money? **Lifestyle** lets you buy toys, from watches to yachts. They raise your flex score and show up in your office for visitors to see. In a pinch you can pawn them again.'] },
     { icon: '🏢', title: 'Companies, the feed and your phone',
-      body: ['Once you are worth **$100 million** you can buy whole companies: haggle with the owner, take it private, and it pays you its profits every day. Owners can make announcements that move the market, if they have earned them.',
+      body: ['Once you are worth **$100 million** you can buy whole companies: haggle with the owner, take it private, and you become its CEO: a salary every Monday plus its profits every day. Owners can make announcements that move the market, if they have earned them.',
         'The **feed** (📣) is where traders post. Tag a stock with $ or an influencer with @, like, repost and comment. Real players\' trades and posts push prices for everyone else, so crowds can pump a stock and dump it.',
         'Your **phone** (💬) lets you message other players, send money and gifts, share tips, and text the loan sharks and insiders. The 📜 button shows your full trading history.'] },
     { icon: '🏆', title: 'Levels, achievements and challenges',
