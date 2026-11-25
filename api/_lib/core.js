@@ -386,7 +386,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
-    await db.updateRun(run.id, { status: 'submitted', final_nw: nw, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
+    await db.updateRun(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));
     const out = { ok: true, nw, ret: nw / base - 1, rank: board.findIndex(r => r.id === run.id) + 1, of: board.length };
     if (run.week.startsWith(DUEL)) { const d = await db.duel(run.week.slice(DUEL.length)); if (d) out.duel = await duelView(db, d, p.id); }
