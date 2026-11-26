@@ -90,7 +90,7 @@ export function memoryDb() {
     async cashList() { return cash.map(clone); },
     async events(week) { return events.filter(e => e.week === week).map(clone); },
     async eventsAfter(id) { return events.filter(e => e.id > id).slice(0, 100).map(clone); },
-    async setProfile(id, avatar, profile) { const p = players.get(id); if (p) Object.assign(p, { avatar: clone(avatar), profile: clone(profile), profile_at: now() }); },
+    async setProfile(id, avatar, profile, expectAt) { const p = players.get(id); if (!p) return false; if (expectAt !== undefined && (p.profile_at ?? null) !== expectAt) return false; Object.assign(p, { avatar: clone(avatar), profile: clone(profile), profile_at: now() }); return true; },
     async follow(a, b, on) { const k = a + '>' + b; if (on) follows.set(k, { follower: a, followee: b, created_at: now() }); else follows.delete(k); },
     async following(a) { return [...follows.values()].filter(f => f.follower === a).map(f => f.followee); },
     async followerCount(b) { return [...follows.values()].filter(f => f.followee === b).length; },
@@ -187,7 +187,12 @@ export async function supabaseDb(url, key) {
     addEvent: e => one(sb.from('global_events').insert(e).select().single()),
     deleteEvents: week => one(sb.from('global_events').delete().eq('week', week)),
     dropPendingCash: () => one(sb.from('cash_adjustments').update({ claimed: true }).eq('claimed', false).is('run_id', null)),
-    setProfile: (id, avatar, profile) => one(sb.from('players').update({ avatar, profile, profile_at: new Date().toISOString() }).eq('id', id)),
+    // with expectAt (the profile_at the caller read; null for never), only writes if nobody else wrote in between
+    setProfile: async (id, avatar, profile, expectAt) => {
+      let q = sb.from('players').update({ avatar, profile, profile_at: new Date().toISOString() }).eq('id', id);
+      if (expectAt !== undefined) q = expectAt === null ? q.is('profile_at', null) : q.eq('profile_at', expectAt);
+      return (await one(q.select('id'))).length > 0;
+    },
     follow: (a, b, on) => on ? one(sb.from('follows').upsert({ follower: a, followee: b })) : one(sb.from('follows').delete().eq('follower', a).eq('followee', b)),
     following: async a => (await one(sb.from('follows').select('followee').eq('follower', a))).map(r => r.followee),
     followerCount: async b => { const { count, error } = await sb.from('follows').select('*', { count: 'exact', head: true }).eq('followee', b); if (error) throw new Error(error.message); return count || 0; },

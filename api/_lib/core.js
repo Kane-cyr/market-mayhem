@@ -208,9 +208,19 @@ export async function handleGame(db, op, body = {}, headers = {}) {
   if (op === 'profile') { // the game pushes your look, career snapshot and recent trades
     const avatar = cleanAvatar(body.avatar), profile = cleanProfile(body.profile, p.profile);
     if (p.profile_at && Date.now() - new Date(p.profile_at) < 15000 && !body.force) return ok({ ok: true, throttled: true, retryAfter: Math.max(1000, 15000 - (Date.now() - new Date(p.profile_at))) });
+    // Revisions: each game carries an id (gid) and its clock (t). A snapshot of the same game that is older than the
+    // one already stored (a delayed request, a stale tab, a reloaded older save) is ignored instead of overwriting it.
+    const live = profile.live, mode = live?.mode === 'weekly' ? 'weekly' : 'career', revs = { ...(p.profile?.rev || {}) }, last = revs[mode];
+    const gid = typeof body.profile?.live?.gid === 'string' && /^[a-z0-9]{4,16}$/.test(body.profile.live.gid) ? body.profile.live.gid : null;
+    if (gid && last && last.gid === gid && Number(live.t) < last.t) return ok({ ok: true, stale: true });
+    if (gid) revs[mode] = { gid, t: Number(live.t) || 0 };
+    profile.rev = revs;
     profile.career = verifyCareer(profile.career, p.profile?.career);
     profile.audit = await audit(db, p, profile);
-    await db.setProfile(p.id, avatar, profile); return ok({ ok: true });
+    // written only if no other profile write landed since this request read the player, so requests cannot finish out of order
+    const wrote = await db.setProfile(p.id, avatar, profile, p.profile_at ?? null);
+    if (wrote === false) return ok({ ok: true, retry: true, retryAfter: 1000 });
+    return ok({ ok: true });
   }
   if (op === 'follow') {
     const x = await db.playerByNick(String(body.nick || '')); if (!x) return bad(404, 'No trader by that name.'); if (x.id === p.id) return bad(400, 'You cannot follow yourself.');
