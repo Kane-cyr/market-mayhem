@@ -49,6 +49,21 @@ export function memoryDb() {
     async recentPosts(pid, secs) { const t = new Date(Date.now() - secs * 1000).toISOString(); return posts.filter(x => x.author === pid && x.created_at > t).length; },
     async setLike(id, pid, on) { const k = id + ':' + pid, had = likes.has(k); if (on) likes.add(k); else likes.delete(k); return had !== on; },
     async addComment(id, pid, body, npc) { comments.push({ id: ++cid2, post_id: id, author: pid, body, npc: npc || null, created_at: now() }); },
+    // transfers are checked and written with no await in between, the in-memory equivalent of the locked transaction
+    // in mm_send_money / mm_send_gift (supabase/schema.sql)
+    async sendMoney({ sender, recipient, amount, note, cap, since }) {
+      const p = players.get(sender), live = p?.profile?.live; if (!live || live.mode !== 'career') return { error: 'nocareer' };
+      const have = Number(live.cash || 0); if (amount > have) return { error: 'nocash' };
+      const sent = cash.filter(c => c.sender === sender && c.created_at > since).reduce((a, c) => a + Number(c.amount_cents), 0);
+      if (sent + amount > cap) return { error: 'cap', left: Math.max(0, cap - sent) };
+      cash.push({ id: ++cid, player_id: recipient, amount_cents: amount, note, sender, created_at: now(), run_id: null, claimed: false, offered_at: null });
+      p.profile = { ...p.profile, live: { ...live, cash: have - amount } }; return { ok: true };
+    },
+    async sendGift({ sender, recipient, item, paid, cap, since }) {
+      const mine = gifts.filter(g => g.sender === sender && g.created_at > since);
+      if (mine.length >= cap) return { error: 'cap' }; if (mine.some(g => g.item_id === item)) return { error: 'dupe' };
+      gifts.push({ id: ++gid, sender, recipient, item_id: item, paid, claimed: false, created_at: now() }); return { ok: true };
+    },
     async addGift(a, b, item, paid) { gifts.push({ id: ++gid, sender: a, recipient: b, item_id: item, paid, claimed: false, created_at: now() }); },
     async claimGifts(pid) { const out = []; for (const g of gifts) if (g.recipient === pid && !g.claimed) { g.claimed = true; out.push({ ...clone(g), from: players.get(g.sender)?.nickname || '?' }); } return out; },
     async comments(id) { return comments.filter(c => c.post_id === id).map(clone); },
@@ -131,6 +146,8 @@ export async function supabaseDb(url, key) {
     setLike: async (id, pid, on) => { if (on) { const { error } = await sb.from('post_likes').insert({ post_id: id, player_id: pid }); if (error) { if (error.code === '23505') return false; throw new Error(error.message); } return true; } const d = await one(sb.from('post_likes').delete().eq('post_id', id).eq('player_id', pid).select()); return !!d?.length; },
     addComment: (id, pid, body, npc) => one(sb.from('post_comments').insert({ post_id: id, author: pid, body, npc: npc || null })),
     addGift: (a, b, item, paid) => one(sb.from('gifts').insert({ sender: a, recipient: b, item_id: item, paid })),
+    sendMoney: ({ sender, recipient, amount, note, cap, since }) => one(sb.rpc('mm_send_money', { p_sender: sender, p_recipient: recipient, p_amount: amount, p_note: note, p_cap: cap, p_since: since })),
+    sendGift: ({ sender, recipient, item, paid, cap, since }) => one(sb.rpc('mm_send_gift', { p_sender: sender, p_recipient: recipient, p_item: item, p_paid: paid, p_cap: cap, p_since: since })),
     pendingGifts: async pid => {
       const gs = await one(sb.from('gifts').select('*').eq('recipient', pid).eq('claimed', false).order('created_at').limit(50)); if (!gs.length) return [];
       const ps = await one(sb.from('players').select('id,nickname').in('id', [...new Set(gs.map(g => g.sender))])); const pm = new Map(ps.map(x => [x.id, x.nickname]));

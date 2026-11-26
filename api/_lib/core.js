@@ -289,11 +289,16 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const live = p.profile?.live; if (!live || live.mode !== 'career') return bad(400, 'Open your career game first, then try again.');
     if (amt > Number(live.cash || 0)) return bad(400, 'You do not have that much cash.');
     if (p.profile?.audit?.flag) return bad(403, 'Your account is under review, so sending money is paused. The Market God will look at it.');
-    const sent = await db.sentSince(p.id, new Date(Date.now() - 864e5).toISOString()), left = Math.max(0, SEND_DAY_CAP - sent);
-    if (amt > left) return bad(400, left > 0 ? `You can send up to ${dollars(SEND_DAY_CAP)} a day. You have ${dollars(left)} left today.` : `You have sent your ${dollars(SEND_DAY_CAP)} for today. Try again tomorrow.`);
+    const since = new Date(Date.now() - 864e5).toISOString();
+    const capMsg = left => left > 0 ? `You can send up to ${dollars(SEND_DAY_CAP)} a day. You have ${dollars(left)} left today.` : `You have sent your ${dollars(SEND_DAY_CAP)} for today. Try again tomorrow.`;
+    const left = Math.max(0, SEND_DAY_CAP - await db.sentSince(p.id, since));
+    if (amt > left) return bad(400, capMsg(left));
     const note = String(body.note || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-    await db.addCash(x.id, amt, `${p.nickname} sent you money${note ? ': ' + note : ''}`, p.id);
-    await db.setProfile(p.id, p.avatar || {}, { ...p.profile, live: { ...live, cash: Number(live.cash) - amt } });
+    // checked again and written in one locked transaction, so parallel requests cannot pass the cap or spend twice
+    const r = await db.sendMoney({ sender: p.id, recipient: x.id, amount: amt, note: `${p.nickname} sent you money${note ? ': ' + note : ''}`, cap: SEND_DAY_CAP, since });
+    if (r?.error === 'cap') return bad(400, capMsg(Number(r.left) || 0));
+    if (r?.error === 'nocash') return bad(400, 'You do not have that much cash.');
+    if (r?.error) return bad(400, 'Open your career game first, then try again.');
     await db.addMessage(p.id, x.id, `💸 Sent you $${(amt / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}${note ? ' · ' + note : ''}`);
     return ok({ ok: true });
   }
@@ -302,10 +307,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const it = ITEMS.find(i => i.id === String(body.item)); if (!it) return bad(400, 'That is not a real item.');
     if (!(p.profile?.career?.items || []).includes(it.id)) return bad(400, 'You do not own that item.');
     if (p.profile?.audit?.flag) return bad(403, 'Your account is under review, so sending gifts is paused. The Market God will look at it.');
-    const recent = await db.giftsSince(p.id, new Date(Date.now() - 864e5).toISOString());
-    if (recent.length >= GIFT_DAY_CAP) return bad(400, `You can send ${GIFT_DAY_CAP} gifts a day. Try again tomorrow.`);
-    if (recent.some(g => g.item_id === it.id)) return bad(400, `You already gave away a ${it.name} today. Buy another one tomorrow.`);
-    await db.addGift(p.id, x.id, it.id, it.price); // valued at the shop price; the sender's own figure is ignored
+    // valued at the shop price (the sender's own figure is ignored); the daily limits are checked and the gift written in
+    // one locked transaction, so one item cannot be given to several people by sending in parallel
+    const r = await db.sendGift({ sender: p.id, recipient: x.id, item: it.id, paid: it.price, cap: GIFT_DAY_CAP, since: new Date(Date.now() - 864e5).toISOString() });
+    if (r?.error === 'cap') return bad(400, `You can send ${GIFT_DAY_CAP} gifts a day. Try again tomorrow.`);
+    if (r?.error) return bad(400, `You already gave away a ${it.name} today. Buy another one tomorrow.`);
     await db.addMessage(p.id, x.id, `🎁 Sent you a gift: ${it.name}`);
     return ok({ ok: true });
   }

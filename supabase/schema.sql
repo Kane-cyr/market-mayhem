@@ -159,3 +159,35 @@ do $$ declare t text; begin
     execute format('create policy deny_public on public.%I as restrictive for all to anon, authenticated using (false) with check (false)', t);
   end loop;
 end $$;
+
+-- Player-to-player transfers run as one transaction that locks the sender's row, so parallel requests cannot get past
+-- the daily cap, spend the same reported cash twice, or give one item to several people.
+create or replace function public.mm_send_money(p_sender uuid, p_recipient uuid, p_amount bigint, p_note text, p_cap bigint, p_since timestamptz)
+returns jsonb language plpgsql set search_path = public as $$
+declare live jsonb; have numeric; sent bigint;
+begin
+  select profile->'live' into live from players where id = p_sender for update;
+  if live is null or live->>'mode' is distinct from 'career' then return jsonb_build_object('error', 'nocareer'); end if;
+  have := coalesce((live->>'cash')::numeric, 0);
+  if p_amount > have then return jsonb_build_object('error', 'nocash'); end if;
+  select coalesce(sum(amount_cents), 0) into sent from cash_adjustments where sender = p_sender and created_at > p_since;
+  if sent + p_amount > p_cap then return jsonb_build_object('error', 'cap', 'left', greatest(0, p_cap - sent)); end if;
+  insert into cash_adjustments (player_id, amount_cents, note, sender) values (p_recipient, p_amount, p_note, p_sender);
+  update players set profile = jsonb_set(profile, '{live,cash}', to_jsonb(have - p_amount)) where id = p_sender;
+  return jsonb_build_object('ok', true);
+end $$;
+create or replace function public.mm_send_gift(p_sender uuid, p_recipient uuid, p_item text, p_paid bigint, p_cap int, p_since timestamptz)
+returns jsonb language plpgsql set search_path = public as $$
+declare n int; dupe boolean;
+begin
+  perform 1 from players where id = p_sender for update;
+  select count(*), coalesce(bool_or(item_id = p_item), false) into n, dupe from gifts where sender = p_sender and created_at > p_since;
+  if n >= p_cap then return jsonb_build_object('error', 'cap'); end if;
+  if dupe then return jsonb_build_object('error', 'dupe'); end if;
+  insert into gifts (sender, recipient, item_id, paid) values (p_sender, p_recipient, p_item, p_paid);
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.mm_send_money(uuid, uuid, bigint, text, bigint, timestamptz) from public, anon, authenticated;
+revoke all on function public.mm_send_gift(uuid, uuid, text, bigint, int, timestamptz) from public, anon, authenticated;
+grant execute on function public.mm_send_money(uuid, uuid, bigint, text, bigint, timestamptz) to service_role;
+grant execute on function public.mm_send_gift(uuid, uuid, text, bigint, int, timestamptz) to service_role;
