@@ -402,8 +402,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!Array.isArray(first) || first[1] !== 'god' || first[0] !== startTick(run.week) || !same(first[2], run.start_payload)) return reject('Run did not start with the issued settings.');
     const pool = (run.issued || []).map(x => x?.payload || x);
     for (const a of actions.slice(1)) if (Array.isArray(a) && a[1] === 'god') { const k = pool.findIndex(x => same(x, a[2])); if (k < 0) return reject('Unrecognised settings in log.'); pool.splice(k, 1); }
-    const missingDelivery = (run.issued || []).filter(x => x?.payload).some(x => pool.some(y => same(y, x.payload)));
-    if (missingDelivery) return reject('A market update was not applied before the run was submitted.');
+    // A payload the game acknowledged (applied and saved) must be in the log. One it never acknowledged may simply
+    // never have arrived (the last sync response was lost on the network), so the run is still valid without it;
+    // any Market God cash in it goes back to pending and reaches the player's career game instead of vanishing.
+    const unapplied = (run.issued || []).filter(x => x?.payload && pool.some(y => same(y, x.payload)));
+    if (unapplied.some(x => x.acked)) return reject('A market update was not applied before the run was submitted.');
     const chal = run.week.startsWith(CHAL) ? await db.challenge(run.week.slice(CHAL.length)) : null;
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
     // runs started before trading went fee-free are checked against the old rules too
@@ -411,11 +414,14 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (nw !== claimed) { try { const L = replayRun({ week: run.week, days: chal?.days }, actions, { legacyFees: true }), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ } }
     if (!S) return reject('Replay failed: ' + (replayErr?.message || 'unknown'));
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
-    const pays = [run.start_payload, ...(run.issued || []).map(x => x?.payload || x)], evs = await db.events(run.week);
+    const skipped = new Set(unapplied.map(x => x.id));
+    const pays = [run.start_payload, ...(run.issued || []).filter(x => !skipped.has(x?.id)).map(x => x?.payload || x)], evs = await db.events(run.week);
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
     await db.updateRun(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
+    const unpaid = unapplied.flatMap(x => (x.payload.cash || []).map(c => c.id)).filter(Number.isSafeInteger);
+    if (unpaid.length) await db.releaseCash(unpaid, run.id);
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));
     const out = { ok: true, nw, ret: nw / base - 1, rank: board.findIndex(r => r.id === run.id) + 1, of: board.length };
     if (run.week.startsWith(DUEL)) { const d = await db.duel(run.week.slice(DUEL.length)); if (d) out.duel = await duelView(db, d, p.id); }
