@@ -134,6 +134,9 @@ grant usage, select on all sequences in schema public to service_role;
 -- who sent a player-to-player payment (null for the Market God); used for the daily sending cap
 alter table cash_adjustments add column if not exists sender uuid references players(id) on delete set null;
 create index if not exists cash_adjustments_sender_idx on cash_adjustments (sender, created_at);
+-- set when a career game has been sent the payment; it stays with that game until acknowledged (claimed), so a
+-- ranked run cannot be paid the same money too
+alter table cash_adjustments add column if not exists offered_at timestamptz;
 create index if not exists gifts_sender_idx on gifts (sender, created_at);
 
 -- per-IP rate limiting for sign-ups, wrong PINs and wrong admin passwords (keys hold a hash, never the IP)

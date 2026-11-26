@@ -237,7 +237,12 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     // during an update); a brand-new game only gets the last 15 minutes. Older ones are marked late: they move
     // prices but skip the cutscene and its 10-second trading pause.
     const after = Number.isInteger(body.after) && body.after >= 0 ? body.after : null;
-    const [cash, evs] = await Promise.all([db.pendingCash(p.id), after != null ? db.eventsAfter(after) : db.events(weekId())]);
+    const [pending, evs] = await Promise.all([db.pendingCash(p.id), after != null ? db.eventsAfter(after) : db.events(weekId())]);
+    // Lease the cash to the career game (offered_at) before sending it, then send only what the lease covers: a ranked
+    // run that took a row a moment earlier keeps it, and one started later cannot take what was sent here.
+    const fresh0 = pending.filter(c => !c.offered_at).map(c => c.id);
+    if (fresh0.length) await db.offerCash(fresh0, p.id);
+    const cash = pending.length ? (await db.pendingCash(p.id)).filter(c => c.offered_at) : [];
     const fresh = forPlayer(evs, p.id).filter(e => after != null ? e.id > after : Date.now() - new Date(e.created_at) < 15 * 6e4)
       .map(e => Date.now() - new Date(e.created_at) > 3 * 6e4 ? { ...e, late: true } : e);
     const reset = p.reset_ver || 0, gifts = await db.pendingGifts(p.id);
@@ -345,7 +350,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
       if (existing.status === 'active') return ok({ resume: true, runId: existing.id, week, cfg: enc(existing.start_payload), maxTick: existing.max_tick || 0 });
       return ok({ finished: true, runId: existing.id, status: existing.status, nw: existing.final_nw && Number(existing.final_nw), ret: existing.ret, reason: existing.reject_reason, week });
     }
-    const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(week)]);
+    const [cash, evs] = await Promise.all([db.rankedCash(p.id), db.events(week)]);
     const payload = { ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: [], events: forPlayer(evs, p.id).map(evPayload) };
     let run; try { run = await db.createRun({ player_id: p.id, week, start_payload: payload, issued: [] }); }
     catch (e) { if (e.code === '23505') return bad(409, 'You already started this week.'); throw e; }
@@ -366,7 +371,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (pending) { await db.updateRun(run.id, patch); return ok({ cfg: enc(pending.payload) }); }
     const issued = (run.issued || []).map(x => x?.payload || x);
     const last = issued.at(-1) || run.start_payload;
-    const [cash, evs] = await Promise.all([db.pendingCash(p.id), db.events(run.week)]);
+    const [cash, evs] = await Promise.all([db.rankedCash(p.id), db.events(run.week)]);
     const seen = deliveredIds(run), fresh = forPlayer(evs, p.id).filter(e => !seen.has(e.id));
     const got = cash.length ? await db.markCash(cash.map(c => c.id), run.id) : [];
     if (p.mods_ver === last.ver && !got.length && !fresh.length) { await db.updateRun(run.id, patch); return ok({ none: true }); }

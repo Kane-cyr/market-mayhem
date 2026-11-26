@@ -67,3 +67,49 @@ test('ranked sync payloads are resent until the client acknowledges them', async
   const next = await handleGame(db, 'sync', { runId, t: 2 }, headers);
   assert.equal(next.body.none, true);
 });
+
+test('cash offered to the career game cannot also be paid into a ranked run before it is acknowledged', async () => {
+  const db = memoryDb();
+  const player = await db.createPlayer('doubledip', 'hash');
+  const headers = { authorization: 'Bearer ' + makeToken(player.id) };
+  const grant = await db.addCash(player.id, 90000, 'grant');
+
+  const claim = await handleGame(db, 'claim', {}, headers); // the career game receives it...
+  const careerCash = JSON.parse(Buffer.from(claim.body.cfg, 'base64').toString('utf8')).cash;
+  assert.deepEqual(careerCash.map(c => c.id), [grant.id]);
+
+  // ...and before its ack arrives (or after the ack was lost) the player starts a ranked run
+  const started = await handleGame(db, 'start', {}, headers);
+  const startCash = JSON.parse(Buffer.from(started.body.cfg, 'base64').toString('utf8')).cash;
+  assert.equal(startCash.length, 0, 'the ranked run must not receive cash already handed to the career game');
+  const synced = await handleGame(db, 'sync', { runId: started.body.runId, t: 12 }, headers);
+  assert.equal(synced.body.none, true);
+
+  // the career game is still offered it until it acknowledges, then never again
+  const retry = await handleGame(db, 'claim', {}, headers);
+  assert.deepEqual(JSON.parse(Buffer.from(retry.body.cfg, 'base64').toString('utf8')).cash.map(c => c.id), [grant.id]);
+  await handleGame(db, 'ack', { cashIds: [grant.id] }, headers);
+  assert.equal((await handleGame(db, 'claim', {}, headers)).body.none, true);
+});
+
+test('cash not yet offered to the career game still goes to a ranked run, exactly once', async () => {
+  const db = memoryDb();
+  const player = await db.createPlayer('rankedonly', 'hash');
+  const headers = { authorization: 'Bearer ' + makeToken(player.id) };
+  const grant = await db.addCash(player.id, 4200, 'grant');
+  const started = await handleGame(db, 'start', {}, headers);
+  assert.deepEqual(JSON.parse(Buffer.from(started.body.cfg, 'base64').toString('utf8')).cash.map(c => c.id), [grant.id]);
+  const claim = await handleGame(db, 'claim', {}, headers);
+  assert.equal(claim.body.none, true, 'the career game does not receive it as well');
+});
+
+test('acknowledging is limited to valid ids of the caller\'s own rewards', async () => {
+  const db = memoryDb();
+  const a = await db.createPlayer('owner', 'hash'), b = await db.createPlayer('other', 'hash');
+  const grant = await db.addCash(a.id, 100, 'grant');
+  const hb = { authorization: 'Bearer ' + makeToken(b.id) };
+  const r = await handleGame(db, 'ack', { cashIds: [grant.id, 'x', 1.5, -1, null], giftIds: 'nope' }, hb);
+  assert.equal(r.status, 200);
+  assert.equal((await db.pendingCash(a.id)).length, 1, 'another player cannot acknowledge (and so destroy) my cash');
+  assert.equal((await handleGame(db, 'ack', {}, {})).status, 401);
+});
