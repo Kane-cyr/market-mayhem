@@ -2,6 +2,9 @@
 // Every method is async so both behave the same.
 import { randomUUID } from 'node:crypto';
 
+// profile_at doubles as the profile's revision, so every write must move it forward, even two in the same millisecond
+const laterThan = prev => new Date(Math.max(Date.now(), (Date.parse(prev) || 0) + 1)).toISOString();
+
 export function memoryDb() {
   const players = new Map(), runs = new Map(), cash = [], events = [], follows = new Map(), duels = new Map(), chals = new Map(), chalP = new Map(), msgs = [], flows = [], posts = [], likes = new Set(), comments = [], gifts = [], hits = []; let mid = 0, pid2 = 0, cid2 = 0, gid = 0; let cid = 0, eid = 0;
   const now = () => new Date().toISOString();
@@ -91,7 +94,7 @@ export function memoryDb() {
     async cashList() { return cash.map(clone); },
     async events(week) { return events.filter(e => e.week === week).map(clone); },
     async eventsAfter(id) { return events.filter(e => e.id > id).slice(0, 100).map(clone); },
-    async setProfile(id, avatar, profile, expectAt) { const p = players.get(id); if (!p) return false; if (expectAt !== undefined && (p.profile_at ?? null) !== expectAt) return false; Object.assign(p, { avatar: clone(avatar), profile: clone(profile), profile_at: now() }); return true; },
+    async setProfile(id, avatar, profile, expectAt) { const p = players.get(id); if (!p) return false; if (expectAt !== undefined && (p.profile_at ?? null) !== expectAt) return false; Object.assign(p, { avatar: clone(avatar), profile: clone(profile), profile_at: laterThan(p.profile_at) }); return true; },
     async follow(a, b, on) { const k = a + '>' + b; if (on) follows.set(k, { follower: a, followee: b, created_at: now() }); else follows.delete(k); },
     async following(a) { return [...follows.values()].filter(f => f.follower === a).map(f => f.followee); },
     async followerCount(b) { return [...follows.values()].filter(f => f.followee === b).length; },
@@ -192,7 +195,7 @@ export async function supabaseDb(url, key) {
     dropPendingCash: () => one(sb.from('cash_adjustments').update({ claimed: true }).eq('claimed', false).is('run_id', null)),
     // with expectAt (the profile_at the caller read; null for never), only writes if nobody else wrote in between
     setProfile: async (id, avatar, profile, expectAt) => {
-      let q = sb.from('players').update({ avatar, profile, profile_at: new Date().toISOString() }).eq('id', id);
+      let q = sb.from('players').update({ avatar, profile, profile_at: laterThan(expectAt) }).eq('id', id);
       if (expectAt !== undefined) q = expectAt === null ? q.is('profile_at', null) : q.eq('profile_at', expectAt);
       return (await one(q.select('id'))).length > 0;
     },

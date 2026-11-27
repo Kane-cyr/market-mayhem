@@ -47,12 +47,16 @@ test('career and ranked snapshots keep separate revisions', async () => {
 test('two requests in flight cannot finish out of order: the loser is told to retry', async () => {
   const { db, push, live } = await player();
   await push(1, 1);
-  const real = db.setProfile.bind(db); let n = 0;
-  db.setProfile = async (...a) => { if (n++ === 0) await new Promise(r => setTimeout(r, 30)); return real(...a); }; // the first write is slow
-  const [slow, fast] = await Promise.all([push(10, 1000), push(20, 2000)]);
-  assert.equal(fast.body.ok, true);
-  assert.equal(slow.body.retry, true, 'the slow, older write is not applied');
-  assert.equal((await live()).cash, 2000);
+  // the first write is held until the second request has written: both read the player before either wrote
+  const real = db.setProfile.bind(db); let n = 0, release; const secondDone = new Promise(r => { release = r; });
+  db.setProfile = async (...a) => { if (n++ === 0) { await secondDone; return real(...a); } const out = await real(...a); release(); return out; };
+  const reqs = [[10, 1000], [20, 2000]], res = await Promise.all(reqs.map(([t, c]) => push(t, c)));
+  const losers = res.map((r, i) => r.body.retry ? i : -1).filter(i => i >= 0);
+  assert.equal(losers.length, 1, 'exactly one overlapping write is applied: ' + JSON.stringify(res.map(r => r.body)));
+  assert.equal((await live()).cash, reqs[1 - losers[0]][1], 'the stored data is the winner\'s, not a mix');
+  db.setProfile = real;
+  await push(...reqs[losers[0]]); // the client retries as told
+  assert.equal((await live()).cash, 2000, 'after the retry the newest snapshot is stored, whichever order they ran in');
 });
 
 test('saves from before revisions (no game id) still sync', async () => {
