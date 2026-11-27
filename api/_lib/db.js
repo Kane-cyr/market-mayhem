@@ -23,6 +23,7 @@ export function memoryDb() {
     async runFor(pid, week) { for (const r of runs.values()) if (r.player_id === pid && r.week === week && r.status !== 'removed') return clone(r); return null; },
     async createRun(r) { for (const x of runs.values()) if (x.player_id === r.player_id && x.week === r.week && x.status !== 'removed') { const e = new Error('exists'); e.code = '23505'; throw e; } const row = { id: randomUUID(), status: 'active', issued: [], final_nw: null, ret: null, rigged: false, reject_reason: null, started_at: now(), submitted_at: null, actions: null, ...clone(r) }; runs.set(row.id, row); return clone(row); },
     async updateRun(id, patch) { const r = runs.get(id); if (!r) return null; Object.assign(r, clone(patch)); return clone(r); },
+    async updateRunIf(id, patch, cond) { const r = runs.get(id); if (!r || Object.entries(cond).some(([k, v]) => (r[k] ?? (k === 'sync_rev' ? 0 : null)) !== v)) return false; Object.assign(r, clone(patch)); return true; },
     async deleteRun(id) { runs.delete(id); },
     async runs(week) { return [...runs.values()].filter(r => !week || r.week === week).map(clone); },
     async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
@@ -118,6 +119,8 @@ export async function supabaseDb(url, key) {
     runFor: (pid, week) => one(sb.from('runs').select('*').eq('player_id', pid).eq('week', week).neq('status', 'removed').maybeSingle()),
     createRun: r => one(sb.from('runs').insert(r).select().single()),
     updateRun: (id, patch) => one(sb.from('runs').update(patch).eq('id', id).select().maybeSingle()),
+    // compare-and-set: writes only if every column in cond still has that value; true if a row was written
+    updateRunIf: async (id, patch, cond) => { let q = sb.from('runs').update(patch).eq('id', id); for (const [k, v] of Object.entries(cond)) q = q.eq(k, v); return (await one(q.select('id'))).length > 0; },
     deleteRun: id => one(sb.from('runs').delete().eq('id', id)),
     runs: week => one(week ? sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,reject_reason,started_at,submitted_at,start_payload,issued').eq('week', week) : sb.from('runs').select('id,player_id,week,status,final_nw,ret,rigged,started_at,submitted_at')),
     pendingCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null).eq('claimed', false)),

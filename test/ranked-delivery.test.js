@@ -109,3 +109,36 @@ test('a lost ranked start can be recovered with the same start settings', async 
   assert.deepEqual(dec(again.body.cfg), dec(started.cfg));
   assert.equal(again.body.maxTick, 0);
 });
+
+// Fault injection: the database write of the first request is slow, so two requests overlap.
+function slowFirst(db, method, ms = 30) {
+  const real = db[method].bind(db); let n = 0;
+  db[method] = async (...a) => { if (n++ === 0) await new Promise(r => setTimeout(r, ms)); return real(...a); };
+}
+
+test('two overlapping syncs cannot lose an issued payload (or the cash in it)', async () => {
+  const { db, player, call, started } = await setup();
+  await db.addCash(player.id, 1111, 'first');
+  const realMark = db.markCash.bind(db); let k = 0;
+  db.markCash = async (ids, run) => (k++ === 0 ? realMark(ids.slice(0, 1), run) : realMark(ids, run));
+  slowFirst(db, 'updateRun');
+  const p1 = call('sync', { runId: started.runId, t: 12 });
+  await new Promise(r => setTimeout(r, 5));
+  await db.addCash(player.id, 2222, 'second');
+  const [a, b] = await Promise.all([p1, call('sync', { runId: started.runId, t: 12 })]);
+  const issued = (await db.run(started.runId)).issued;
+  const assigned = (await db.runs()).length && [...(await db.pendingCash(player.id))];
+  const inRun = issued.flatMap(x => (x.payload || x).cash || []).map(c => c.amount).sort();
+  const pending = assigned.map(c => Number(c.amount_cents));
+  // every grant is either in an issued payload or still pending: none is assigned to the run and forgotten
+  assert.deepEqual([...inRun, ...pending].sort((x, y) => x - y), [1111, 2222], JSON.stringify({ inRun, pending, a: a.body, b: b.body }));
+});
+
+test('two submits of the same run at once: one is verified, the other is told it was already submitted', async () => {
+  const { db, call, started } = await setup();
+  const { actions, claimed } = play(started);
+  slowFirst(db, 'updateRun');
+  const rs = await Promise.all([call('submit', { runId: started.runId, actions, claimed }), call('submit', { runId: started.runId, actions, claimed })]);
+  assert.deepEqual(rs.map(r => r.status).sort(), [200, 409]);
+  assert.equal((await db.run(started.runId)).status, 'submitted');
+});

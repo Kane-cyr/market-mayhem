@@ -137,6 +137,8 @@ create index if not exists cash_adjustments_sender_idx on cash_adjustments (send
 -- set when a career game has been sent the payment; it stays with that game until acknowledged (claimed), so a
 -- ranked run cannot be paid the same money too
 alter table cash_adjustments add column if not exists offered_at timestamptz;
+-- bumped on every change to runs.issued, so overlapping syncs and acknowledgements cannot overwrite each other
+alter table runs add column if not exists sync_rev integer not null default 0;
 create index if not exists gifts_sender_idx on gifts (sender, created_at);
 
 -- per-IP rate limiting for sign-ups, wrong PINs and wrong admin passwords (keys hold a hash, never the IP)

@@ -394,21 +394,29 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const pid = randomUUID();
     const payload = { pid, ver: p.mods_ver, vol: Number(p.vol_mult), luck: Number(p.luck), cash: got.map(cashPayload), events: fresh.map(evPayload) };
     const record = { id: pid, payload, acked: false };
-    await db.updateRun(run.id, { ...patch, issued: [...(run.issued || []), record] });
+    // appended only if no other request changed the issued list since this one read it (sync_rev); otherwise the cash
+    // taken above goes back to pending and the payload is not sent, so nothing is assigned to the run and forgotten
+    const rev = run.sync_rev || 0;
+    if (!(await db.updateRunIf(run.id, { ...patch, issued: [...(run.issued || []), record], sync_rev: rev + 1 }, { sync_rev: rev, status: 'active' }))) {
+      if (got.length) await db.releaseCash(got.map(c => c.id), run.id);
+      return ok({ none: true });
+    }
     return ok({ cfg: enc(payload) });
   }
 
   if (op === 'sync_ack') {
-    const run = await db.run(String(body.runId || ''));
-    if (!run || run.player_id !== p.id) return bad(404, 'Run not found.');
     const payloadId = String(body.payloadId || '');
     if (!/^[0-9a-f-]{36}$/i.test(payloadId)) return bad(400, 'Invalid sync acknowledgement.');
-    const issued = run.issued || [], index = issued.findIndex(x => x?.id === payloadId && x.payload);
-    if (index < 0) return bad(404, 'Sync payload not found.');
-    if (issued[index].acked) return ok({ ok: true });
-    const next = issued.map((x, i) => i === index ? { ...x, acked: true } : x);
-    await db.updateRun(run.id, { issued: next });
-    return ok({ ok: true });
+    for (let attempt = 0; attempt < 4; attempt++) { // compare-and-set on sync_rev, re-reading if a sync landed in between
+      const run = await db.run(String(body.runId || ''));
+      if (!run || run.player_id !== p.id) return bad(404, 'Run not found.');
+      const issued = run.issued || [], index = issued.findIndex(x => x?.id === payloadId && x.payload);
+      if (index < 0) return bad(404, 'Sync payload not found.');
+      if (issued[index].acked) return ok({ ok: true });
+      const rev = run.sync_rev || 0, next = issued.map((x, i) => i === index ? { ...x, acked: true } : x);
+      if (await db.updateRunIf(run.id, { issued: next, sync_rev: rev + 1 }, { sync_rev: rev })) return ok({ ok: true });
+    }
+    return bad(409, 'The run is busy. Try again.');
   }
 
   if (op === 'submit') {
@@ -416,7 +424,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (!run || run.player_id !== p.id) return bad(404, 'Run not found.');
     if (run.status !== 'active') return bad(409, 'This run was already submitted.');
     const actions = body.actions, claimed = Number(body.claimed);
-    const reject = async reason => { await db.updateRun(run.id, { status: 'rejected', reject_reason: reason, submitted_at: new Date().toISOString(), actions: Array.isArray(actions) ? actions.slice(0, 5000) : null }); return bad(422, 'Your score could not be verified.', { reason }); };
+    const reject = async reason => { if (!(await db.updateRunIf(run.id, { status: 'rejected', reject_reason: reason, submitted_at: new Date().toISOString(), actions: Array.isArray(actions) ? actions.slice(0, 5000) : null }, { status: 'active' }))) return bad(409, 'This run was already submitted.'); return bad(422, 'Your score could not be verified.', { reason }); };
     if (!Array.isArray(actions) || !actions.length || actions.length > 20000) return reject('Missing or oversized action log.');
     // god payloads in the log must be exactly what the server issued: the start payload first, then syncs
     const first = actions[0];
@@ -440,7 +448,8 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const targeted = new Set(evs.filter(e => e.player_id).map(e => e.id));
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
-    await db.updateRun(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions });
+    // only one submission of a run can win, even if the same run is sent twice at once
+    if (!(await db.updateRunIf(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions }, { status: 'active' }))) return bad(409, 'This run was already submitted.');
     const unpaid = unapplied.flatMap(x => (x.payload.cash || []).map(c => c.id)).filter(Number.isSafeInteger);
     if (unpaid.length) await db.releaseCash(unpaid, run.id);
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));
