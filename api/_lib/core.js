@@ -32,6 +32,11 @@ function cashPayload(c) { return { id: c.id, amount: Number(c.amount_cents), ...
 const forPlayer = (evs, pid) => evs.filter(e => !e.player_id || e.player_id === pid);
 const deliveredIds = run => { const ids = new Set(); for (const raw of [run.start_payload, ...(run.issued || [])]) { const p = raw?.payload || raw; for (const e of p.events || []) ids.add(e.id); } return ids; };
 
+// runs.final_nw is a Postgres bigint of whole cents. Scores beyond it (about $90 quadrillion, only reachable with huge
+// Market God grants) are recorded at the limit; ret (a real) and the response keep the exact figure.
+export const SCORE_CAP = 9e18;
+export const recordScore = nw => Math.max(-SCORE_CAP, Math.min(SCORE_CAP, Math.round(nw)));
+
 const DUEL = 'duel-', CHAL = 'chal-';
 const FORFEIT_MS = 3 * 864e5; // if one player finishes and the other has not after 3 days, the finisher wins
 // One duel as seen by player `me`. The result is worked out from the two verified runs.
@@ -449,7 +454,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const rigged = pays.some(x => x.vol !== 1 || x.luck !== 0 || (x.cash || []).length || (x.events || []).some(e => targeted.has(e.id)));
     const base = chal ? Number(chal.start_cash) : START_CASH;
     // only one submission of a run can win, even if the same run is sent twice at once
-    if (!(await db.updateRunIf(run.id, { status: 'submitted', final_nw: Math.round(nw) /* the column holds whole cents */, ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions }, { status: 'active' }))) return bad(409, 'This run was already submitted.');
+    if (!(await db.updateRunIf(run.id, { status: 'submitted', final_nw: recordScore(nw), ret: nw / base - 1, rigged: chal ? false : rigged, submitted_at: new Date().toISOString(), actions }, { status: 'active' }))) return bad(409, 'This run was already submitted.');
     const unpaid = unapplied.flatMap(x => (x.payload.cash || []).map(c => c.id)).filter(Number.isSafeInteger);
     if (unpaid.length) await db.releaseCash(unpaid, run.id);
     const board = (await db.runs(run.week)).filter(r => r.status === 'submitted').sort((a, b) => Number(b.final_nw) - Number(a.final_nw));

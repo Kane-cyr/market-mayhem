@@ -142,3 +142,16 @@ test('two submits of the same run at once: one is verified, the other is told it
   assert.deepEqual(rs.map(r => r.status).sort(), [200, 409]);
   assert.equal((await db.run(started.runId)).status, 'submitted');
 });
+
+test('verified scores are stored as whole cents within the bigint column, never as an out-of-range value', async () => {
+  const { recordScore } = await import('../api/_lib/core.js');
+  const BIGINT_MAX = 9223372036854775807n;
+  for (const nw of [0, 12345.6, -0.4, 1e15, 9.2e18, 1e25, 2.8e26, -1e25, Number.MAX_VALUE]) {
+    const v = recordScore(nw);
+    assert.ok(Number.isSafeInteger(v) || Number.isInteger(v), `${nw} -> ${v}`);
+    assert.ok(BigInt(v) <= BIGINT_MAX && BigInt(v) >= -BIGINT_MAX, `${nw} -> ${v} fits`);
+  }
+  assert.equal(recordScore(12345.6), 12346);
+  assert.equal(recordScore(1e25), 9e18, 'capped at the column limit');
+  assert.equal(recordScore(-1e25), -9e18);
+});
