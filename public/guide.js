@@ -15,7 +15,7 @@
     { icon: '📈', title: 'Welcome to Market Mayhem',
       body: ['A stock market where everything is invented: the companies, the people, the countries and the money. You start with **$10,000** and a market of **40+ fictional companies** across 11 sectors, from AI and banking to energy, entertainment and crypto.',
         'Your goal is simple: grow your net worth. Nothing here is real money and nothing here is financial advice.',
-        'Time only moves when you let it. Use the controls at the top to pause, play at 1x to 3x speed, or jump a day (+1D) or a week (+1W). Take as long as you like to think.'] },
+        'Time only moves when you let it. Use the controls at the top to pause, play at 1x to 3x speed, or jump a day (+1D), a week (+1W), two weeks (+2W) or a month (+1M). Take as long as you like to think.'] },
     { icon: '🛒', title: 'Buying and selling',
       body: ['Open **Companies**, pick a stock and press **Buy**. You can buy at the market price, or place an order at a price you choose and wait for it to fill. Every trade has a small fee.',
         '**Sell** to lock in profit or cut a loss. Think a stock is about to fall? **Short** it: you profit when the price drops, and you lose when it rises. Watch your margin. If a short moves too far against you, the broker closes it for you.',
