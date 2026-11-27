@@ -186,7 +186,7 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     const x = await db.playerByNick(String(body.nick || '')); if (!x || x.banned) return bad(404, 'No trader by that name.');
     const [run, followers] = await Promise.all([db.runFor(x.id, weekId()), db.followerCount(x.id)]);
     const viewer = await authPlayer(db, headers); const following = viewer ? (await db.following(viewer.id)).includes(x.id) : false;
-    const { live: _live, audit: _audit, ...rest } = x.profile || {}, flagged = !!x.profile?.audit?.flag && viewer?.id !== x.id; // they still see their own numbers
+    const { live: _live, audit: _audit, rev: _rev, ...rest } = x.profile || {}, flagged = !!x.profile?.audit?.flag && viewer?.id !== x.id; // they still see their own numbers
     const pub = flagged ? { ...rest, career: null, trades: [], unverified: true } : rest; // flagged numbers are not shown to other players
     return ok({ nickname: x.nickname, avatar: x.avatar || {}, profile: pub, updated: x.profile_at, followers, following, me: viewer?.id === x.id,
       weekly: run && run.status === 'submitted' ? { nw: Number(run.final_nw), ret: run.ret } : null });

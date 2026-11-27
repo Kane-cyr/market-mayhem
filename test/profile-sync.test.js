@@ -75,3 +75,14 @@ test('a throttled push says when to retry', async () => {
   assert.equal(r.body.throttled, true);
   assert.ok(r.body.retryAfter >= 1000 && r.body.retryAfter <= 15000);
 });
+
+test('another player\'s public profile never includes the private snapshot, audit or revisions', async () => {
+  const { db, p, push } = await player();
+  await push(10, 123456);
+  const viewer = await db.createPlayer('nosy' + Math.floor(Math.random() * 1e5), 'hash');
+  const r = await handleGame(db, 'player', { nick: p.nickname }, { authorization: 'Bearer ' + makeToken(viewer.id) });
+  assert.equal(r.status, 200);
+  for (const k of ['live', 'audit', 'rev']) assert.equal(r.body.profile[k], undefined, k);
+  const anon = await handleGame(db, 'player', { nick: p.nickname }, {});
+  for (const k of ['live', 'audit', 'rev']) assert.equal(anon.body.profile[k], undefined, 'signed out: ' + k);
+});
