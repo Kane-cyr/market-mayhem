@@ -445,7 +445,11 @@ export async function handleGame(db, op, body = {}, headers = {}) {
     if (run.week.startsWith(CHAL) && (!chal || chal.status !== 'open')) return reject('This challenge has closed.');
     // runs started before trading went fee-free are checked against the old rules too
     let S, nw; try { S = replayRun({ week: run.week, days: chal?.days }, actions); nw = netWorth(S).total; } catch (e) { S = null; nw = NaN; var replayErr = e; }
-    if (nw !== claimed) { try { const L = replayRun({ week: run.week, days: chal?.days }, actions, { legacyFees: true }), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ } }
+    // runs played under earlier rules: with the forced-cover fee, then with the old fee/price rules
+    for (const rules of [{ coverFee: true }, { legacyFees: true }]) {
+      if (nw === claimed) break;
+      try { const L = replayRun({ week: run.week, days: chal?.days }, actions, rules), lnw = netWorth(L).total; if (lnw === claimed) { S = L; nw = lnw; } } catch { /* keep the first result */ }
+    }
     if (!S) return reject('Replay failed: ' + (replayErr?.message || 'unknown'));
     if (!Number.isFinite(claimed) || claimed !== nw) return reject(`Score mismatch (claimed ${claimed}, replay ${nw}).`);
     const skipped = new Set(unapplied.map(x => x.id));

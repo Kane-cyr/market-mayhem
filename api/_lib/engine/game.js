@@ -148,8 +148,8 @@ export const godSync = (S, payload) => perform(S, 'god', payload);
 /** Rebuild a weekly run from its starting god settings and action log. Throws on any malformed or
  * impossible log. Returns the final state; the caller compares net worth with the claimed score. */
 export function replayRun(cfg, actions, opts = {}) {
-  RULES.legacyFees = !!opts.legacyFees;
-  try { return replayCore(cfg, actions, opts); } finally { RULES.legacyFees = false; }
+  RULES.legacyFees = !!opts.legacyFees; RULES.coverFee = !!opts.coverFee;
+  try { return replayCore(cfg, actions, opts); } finally { RULES.legacyFees = false; RULES.coverFee = false; }
 }
 function replayCore({ week, god, days }, actions, { maxActions = 20000 } = {}) {
   if (!Array.isArray(actions) || actions.length > maxActions) throw new Error('Bad action log.');

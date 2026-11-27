@@ -82,7 +82,7 @@ export function setBrokerDebt(fn) { toBroker = fn; }
 /** buy back a short no matter what: sell longs to raise cash, and turn any shortfall into broker debt */
 function forceCover(S, ticker, priceCents, src) {
   const p = S.player, x = p.shorts?.[ticker]; if (!x) return;
-  const fee = Math.max(100, Math.round(x.shares * priceCents * 0.001)), cost = x.shares * priceCents + fee;
+  const fee = RULES.legacyFees || RULES.coverFee ? Math.max(100, Math.round(x.shares * priceCents * 0.001)) : 0, cost = x.shares * priceCents + fee;
   for (const q of positions(S)) { if (p.cash >= cost) break; const h = p.holdings[q.ticker]; if (h) sell(S, q.ticker, h.shares, { source: 'margin' }); }
   if (p.cash >= cost) { doCover(S, ticker, x.shares, cost, priceCents, fee, src); return; }
   const short = cost - p.cash; // pay what we can, the broker lends the rest

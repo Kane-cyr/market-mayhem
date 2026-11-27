@@ -8,7 +8,9 @@ import { clamp, round } from './util.js';
 // identically on both sides (IEEE-754 is deterministic), so replays still match to the cent.
 export const MAX_ORDERS = 20, MAX_SHARES = Infinity;
 // Trading is fee-free. Runs started before that change are replayed with the old rules (see game.js).
-export const RULES = { legacyFees: false };
+// legacyFees: the old fee, spread and impact rules. coverFee: only the 0.1% fee that forced short buy-backs (takeovers,
+// bankruptcies) still charged after trading went fee-free; runs played before that was removed are replayed with it.
+export const RULES = { legacyFees: false, coverFee: false };
 const FEE_RATE = 0.001, MIN_FEE = 100;
 const SPREAD_BPS = { blue: 6, growth: 12, spec: 35 };
 

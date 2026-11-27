@@ -155,3 +155,19 @@ test('verified scores are stored as whole cents within the bigint column, never 
   assert.equal(recordScore(1e25), 9e18, 'capped at the column limit');
   assert.equal(recordScore(-1e25), -9e18);
 });
+
+test('a run played while forced buy-backs still charged a fee is still verified', async () => {
+  const { RULES } = await import('../api/_lib/engine/trading.js');
+  const { shortShares, replayRun } = await import('../api/_lib/engine/game.js');
+  const db = memoryDb(), player = await db.createPlayer('oldcover', 'hash');
+  const call = (op, body = {}) => handleGame(db, op, body, { authorization: 'Bearer ' + makeToken(player.id) });
+  const week = '2026-W03', start_payload = { ver: 0, vol: 1, luck: 0, cash: [{ id: 1, amount: 1e8 }], events: [] }; // PLSI is taken over on day 10
+  const run = await db.createRun({ player_id: player.id, week, start_payload, status: 'active', issued: [], max_tick: 0 });
+  RULES.coverFee = true; // the game as it was before the fee was removed
+  let S; try { S = createWeekly(week); godSync(S, start_payload); advance(S, 6); assert.equal(shortShares(S, 'PLSI', 100).ok, true); advance(S, S.mode.endT - S.t); } finally { RULES.coverFee = false; }
+  const claimed = netWorth(S).total;
+  assert.notEqual(netWorth(replayRun({ week }, S.actions)).total, claimed, 'the current rules alone would not match this run');
+  const res = await call('submit', { runId: run.id, actions: S.actions, claimed });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.nw, claimed);
+});
