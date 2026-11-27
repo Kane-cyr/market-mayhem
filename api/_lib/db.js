@@ -32,15 +32,13 @@ export function memoryDb() {
     async pendingCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed).map(clone); },
     async rankedCash(pid) { return cash.filter(c => c.player_id === pid && !c.run_id && !c.claimed && !c.offered_at).map(clone); },
     async offerCash(ids, pid) { for (const c of cash) if (ids.includes(c.id) && c.player_id === pid && !c.run_id && !c.claimed && !c.offered_at) c.offered_at = now(); },
-    async claimCash(ids) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.claimed && !c.run_id) { c.claimed = true; out.push(clone(c)); } return out; },
     async ackCash(ids, pid) { for (const c of cash) if (ids.includes(c.id) && c.player_id === pid && !c.run_id) c.claimed = true; },
     async ackGifts(ids, pid) { for (const g of gifts) if (ids.includes(g.id) && g.recipient === pid) g.claimed = true; },
-    async pendingGifts(pid) { return gifts.filter(g => g.recipient === pid && !g.claimed).map(g => ({ ...clone(g), from: players.get(g.sender)?.nickname || '?' })); }, // only rows this call flipped
+    async pendingGifts(pid) { return gifts.filter(g => g.recipient === pid && !g.claimed).map(g => ({ ...clone(g), from: players.get(g.sender)?.nickname || '?' })); }, // read only: gifts stay pending until ackGifts
     async hit(key) { hits.push({ key, at: now() }); if (hits.length > 5000) hits.splice(0, 1000); },
     async hitsSince(key, t) { return hits.filter(h => h.key === key && h.at > t).length; },
     async sentSince(pid, t) { return cash.filter(c => c.sender === pid && c.created_at > t).reduce((a, c) => a + Number(c.amount_cents), 0); },
     async creditsSince(pid, t) { return cash.filter(c => c.player_id === pid && c.created_at > t && Number(c.amount_cents) > 0).reduce((a, c) => a + Number(c.amount_cents), 0); },
-    async giftsSince(pid, t) { return gifts.filter(g => g.sender === pid && g.created_at > t).map(clone); },
     async createDuel(a, b) { const d = { id: randomUUID(), challenger: a, opponent: b, status: 'pending', created_at: now(), accepted_at: null }; duels.set(d.id, d); return clone(d); },
     async duel(id) { return clone(duels.get(id) || null); },
     async duelsFor(pid) { return [...duels.values()].filter(d => d.challenger === pid || d.opponent === pid).sort((x, y) => y.created_at.localeCompare(x.created_at)).map(clone); },
@@ -69,7 +67,6 @@ export function memoryDb() {
       gifts.push({ id: ++gid, sender, recipient, item_id: item, paid, claimed: false, created_at: now() }); return { ok: true };
     },
     async addGift(a, b, item, paid) { gifts.push({ id: ++gid, sender: a, recipient: b, item_id: item, paid, claimed: false, created_at: now() }); },
-    async claimGifts(pid) { const out = []; for (const g of gifts) if (g.recipient === pid && !g.claimed) { g.claimed = true; out.push({ ...clone(g), from: players.get(g.sender)?.nickname || '?' }); } return out; },
     async comments(id) { return comments.filter(c => c.post_id === id).map(clone); },
     async postStats(ids, me) { const o = {}; for (const id of ids) o[id] = { likes: [...likes].filter(k => k.startsWith(id + ':')).length, liked: likes.has(id + ':' + me), comments: comments.filter(c => c.post_id === id).length, reposts: posts.filter(x => x.repost_of === id).length }; return o; },
     async addFlows(rows) { for (const r of rows) flows.push({ ...r, created_at: now() }); },
@@ -87,7 +84,6 @@ export function memoryDb() {
     async challengesAll() { return [...chals.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(clone); },
     async updateChallenge(id, patch) { const c = chals.get(id); if (!c) return null; Object.assign(c, patch); return clone(c); },
     async updateDuel(id, patch) { const d = duels.get(id); if (!d) return null; Object.assign(d, patch); return clone(d); },
-    async cashForRun(runId) { return cash.filter(c => c.run_id === runId).map(clone); },
     async markCash(ids, runId) { const out = []; for (const c of cash) if (ids.includes(c.id) && !c.run_id && !c.claimed && !c.offered_at) { c.run_id = runId; out.push(clone(c)); } return out; },
     async releaseCash(ids, runId) { for (const c of cash) if (ids.includes(c.id) && c.run_id === runId && !c.claimed) c.run_id = null; }, // undelivered ranked cash goes back to pending
     async addCash(pid, amount_cents, note, sender = null) { const c = { id: ++cid, player_id: pid, amount_cents, note, sender, created_at: now(), run_id: null, claimed: false, offered_at: null }; cash.push(c); return clone(c); },
@@ -131,14 +127,11 @@ export async function supabaseDb(url, key) {
     // ranked run started in the meantime cannot be paid the same money a second time
     rankedCash: pid => one(sb.from('cash_adjustments').select('*').eq('player_id', pid).is('run_id', null).eq('claimed', false).is('offered_at', null)),
     offerCash: async (ids, pid) => ids.length ? one(sb.from('cash_adjustments').update({ offered_at: new Date().toISOString() }).in('id', ids).eq('player_id', pid).is('run_id', null).eq('claimed', false).is('offered_at', null).select('id')) : [],
-    // conditional updates: a payment is delivered once, even if two tabs (or a ranked run and a career game) ask at the same moment
-    claimCash: async ids => ids.length ? one(sb.from('cash_adjustments').update({ claimed: true }).in('id', ids).eq('claimed', false).is('run_id', null).select('*')) : [],
     // per-IP rate limiting (keys hold a hash of the IP, never the IP itself); old rows are pruned now and then
     hit: async key => { await one(sb.from('rate_hits').insert({ key })); if (Math.random() < 0.02) await one(sb.from('rate_hits').delete().lt('at', new Date(Date.now() - 864e5).toISOString())); },
     hitsSince: async (key, t) => { const { count, error } = await sb.from('rate_hits').select('id', { count: 'exact', head: true }).eq('key', key).gt('at', t); if (error) throw error; return count || 0; },
     sentSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('sender', pid).gt('created_at', t).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
     creditsSince: async (pid, t) => (await one(sb.from('cash_adjustments').select('amount_cents').eq('player_id', pid).gt('created_at', t).gt('amount_cents', 0).limit(2000))).reduce((a, c) => a + Number(c.amount_cents), 0),
-    giftsSince: (pid, t) => one(sb.from('gifts').select('id,item_id,created_at').eq('sender', pid).gt('created_at', t).limit(200)),
     createDuel: (a, b) => one(sb.from('duels').insert({ challenger: a, opponent: b }).select().single()),
     duel: id => /^[0-9a-f-]{36}$/.test(id) ? one(sb.from('duels').select('*').eq('id', id).maybeSingle()) : null,
     duelsFor: pid => one(sb.from('duels').select('*').or(`challenger.eq.${pid},opponent.eq.${pid}`).order('created_at', { ascending: false }).limit(60)),
@@ -183,7 +176,6 @@ export async function supabaseDb(url, key) {
     challengesAll: () => one(sb.from('challenges').select('*').order('created_at', { ascending: false }).limit(30)),
     updateChallenge: (id, patch) => one(sb.from('challenges').update(patch).eq('id', id).select().maybeSingle()),
     updateDuel: (id, patch) => one(sb.from('duels').update(patch).eq('id', id).select().maybeSingle()),
-    cashForRun: runId => one(sb.from('cash_adjustments').select('*').eq('run_id', runId)),
     markCash: async (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: runId }).in('id', ids).is('run_id', null).eq('claimed', false).is('offered_at', null).select('*')) : [],
     releaseCash: async (ids, runId) => ids.length ? one(sb.from('cash_adjustments').update({ run_id: null }).in('id', ids).eq('run_id', runId).eq('claimed', false).select('id')) : [],
     addCash: (pid, amount_cents, note, sender = null) => one(sb.from('cash_adjustments').insert({ player_id: pid, amount_cents, note, ...(sender ? { sender } : {}) }).select().single()),
